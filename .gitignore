@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+models/hf_cache/
+models/piper/**/*.onnx
+models/piper/.cache/
+data/output/
+data/images/
+data/audio/
+logs/*.log
+.env
+.claude/settings.local.json

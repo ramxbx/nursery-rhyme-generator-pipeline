@@ -1,0 +1,15 @@
+backend: diffusers
+base_model: stable-diffusion-v1-5/stable-diffusion-v1-5
+variant: fp16
+lora: latent-consistency/lcm-lora-sdv1-5
+steps: 4
+guidance_scale: 1.0
+width: 512
+height: 288
+output_width: 1920
+output_height: 1080
+seed_per_character: true
+enable_model_cpu_offload: true
+enable_vae_slicing: true
+enable_vae_tiling: true
+attention_backend: sdpa

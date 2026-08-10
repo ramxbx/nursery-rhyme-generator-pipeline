@@ -1,0 +1,31 @@
+{
+  "cast": [
+    "Narrator"
+  ],
+  "scenes": [
+    {
+      "line": "Twinkle, twinkle, little star,",
+      "speaker": "Narrator",
+      "stage_direction": "Appears as a shining point in the night sky",
+      "duration_s": 2.5
+    },
+    {
+      "line": "How I wonder what you are.",
+      "speaker": "Narrator",
+      "stage_direction": "Narrator asks about unknown object or person",
+      "duration_s": 2.95
+    },
+    {
+      "line": "Up above the world so high,",
+      "speaker": "Narrator",
+      "stage_direction": "Descending",
+      "duration_s": 3.15
+    },
+    {
+      "line": "Like a diamond in the sky.",
+      "speaker": "Narrator",
+      "stage_direction": "Describing something shining brightly",
+      "duration_s": 2.95
+    }
+  ]
+}

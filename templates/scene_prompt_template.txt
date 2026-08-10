@@ -1,0 +1,6 @@
+You are drafting an image-generation prompt for a single children's video scene. Output ONLY the prompt text itself (no JSON, no preamble, no quotes), as a comma-separated list of concise visual descriptors suitable for a text-to-image model.
+
+Style: soft, colorful, child-friendly picture-book illustration.
+Character(s) in this scene: $speaker
+Consistent subject description: $subject_description
+Action / stage direction: $stage_direction

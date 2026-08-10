@@ -1,0 +1,29 @@
+paths:
+  data_dir: data
+  scripts_dir: data/scripts
+  images_dir: data/images
+  audio_dir: data/audio
+  output_dir: data/output
+  logs_dir: logs
+
+models:
+  llm:
+    endpoint: http://127.0.0.1:1234/v1
+    primary: lfm2-1.2b-bench
+    fallback: gemma-3-1b-bench
+    excluded:
+      - qwen3-1.7b-bench
+    context_length: 4096
+    max_concurrent_requests: 1
+    request_timeout_s: 60
+    max_retries: 2
+
+video:
+  fps: 24
+  codec: h264
+  width: 1920
+  height: 1080
+
+gpu:
+  single_stage_at_a_time: true
+  image_stage_device: cuda

@@ -1,0 +1,9 @@
+backend: piper
+voice_onnx: models/piper/en/en_US/lessac/medium/en_US-lessac-medium.onnx
+voice_config: models/piper/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+sample_rate: 48000
+bit_depth: 16
+channels: 1
+length_scale: 1.0
+noise_scale: 0.667
+noise_w: 0.8
