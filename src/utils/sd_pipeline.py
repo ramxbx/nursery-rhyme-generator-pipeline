@@ -6,6 +6,14 @@ model CPU offload) live in one place, matching config/sd_config.yml.
 """
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
+# Must be set before the diffusers/huggingface_hub import below, so this
+# process reuses the weights already fetched into the repo's models/hf_cache
+# (GPT-19) instead of re-downloading into the default ~/.cache/huggingface.
+os.environ.setdefault("HF_HOME", str(Path(__file__).resolve().parent.parent.parent / "models" / "hf_cache"))
+
 import torch
 from diffusers import DiffusionPipeline, LCMScheduler
 
