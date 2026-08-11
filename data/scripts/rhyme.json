@@ -1,31 +1,32 @@
 {
   "cast": [
-    "Narrator"
+    "Narrator",
+    "Star"
   ],
   "scenes": [
     {
-      "line": "Twinkle, twinkle, little star,",
+      "line": "Twinkle, twinkle, shining star,",
       "speaker": "Narrator",
-      "stage_direction": "Appears as a shining point in the night sky",
-      "duration_s": 2.5
+      "stage_direction": "Narrates celestial object",
+      "duration_s": 2.85
     },
     {
       "line": "How I wonder what you are.",
       "speaker": "Narrator",
-      "stage_direction": "Narrator asks about unknown object or person",
+      "stage_direction": "Narrator expresses curiosity about another character's appearance",
       "duration_s": 2.95
     },
     {
       "line": "Up above the world so high,",
-      "speaker": "Narrator",
-      "stage_direction": "Descending",
+      "speaker": "Star",
+      "stage_direction": "Narrating skyline",
       "duration_s": 3.15
     },
     {
-      "line": "Like a diamond in the sky.",
+      "line": "Like a sparkling gem in the vast sky.",
       "speaker": "Narrator",
-      "stage_direction": "Describing something shining brightly",
-      "duration_s": 2.95
+      "stage_direction": "Describing the star's appearance",
+      "duration_s": 3.65
     }
   ]
 }

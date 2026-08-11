@@ -6,6 +6,9 @@ paths:
   output_dir: data/output
   logs_dir: logs
 
+script:
+  creative_rewrite: true
+
 models:
   llm:
     endpoint: http://127.0.0.1:1234/v1

@@ -42,6 +42,11 @@ def build_dialogue_prompt(line_text: str, line_index: int, line_total: int, cast
     )
 
 
+def build_rewrite_prompt(target_word: str) -> str:
+    template = load_template("rewrite_prompt_template.txt")
+    return render(template, target_word=target_word)
+
+
 def build_scene_image_prompt(speaker: str, subject_description: str, stage_direction: str) -> str:
     template = load_template("scene_prompt_template.txt")
     return render(
