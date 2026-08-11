@@ -1,0 +1,21 @@
+# torch must be installed separately from the CUDA-enabled index, matching
+# your GPU driver's CUDA version, e.g.:
+#   pip install torch --index-url https://download.pytorch.org/whl/cu126
+# See README.md for the full setup sequence. This file covers everything else.
+
+diffusers==0.39.0
+transformers==5.15.0
+peft==0.20.0
+accelerate==1.14.0
+safetensors==0.8.0
+huggingface_hub==1.27.0
+
+piper-tts==1.6.0
+soundfile==0.14.0
+librosa==0.11.0
+
+numpy==2.4.6
+PyYAML==6.0.3
+Pillow==12.3.0
+
+pytest==9.1.1
