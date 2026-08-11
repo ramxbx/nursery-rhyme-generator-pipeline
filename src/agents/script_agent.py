@@ -11,6 +11,7 @@ in the GPT-18 benchmark.
 from __future__ import annotations
 
 import argparse
+import difflib
 import re
 import sys
 from pathlib import Path
@@ -30,16 +31,17 @@ REQUIRED_ANNOTATION_KEYS = {"speaker", "stage_direction"}
 LAST_WORD_RE = re.compile(r"^(.*\b)([A-Za-z']+)([.,!?;:]*)\s*$")
 REWRITE_MAX_RETRIES = 2
 
-# Bigger CPU-only model for elaborate, whole-poem-aware scene descriptions
-# (see GPT-20 follow-up: LFM2/Gemma-3-1B's per-line annotation loses the
-# poem's throughline after line 1 - Qwen2.5-7B was benchmarked against
-# gemma-4-e2b and bonsai-27b for this specific task; picked for having no
-# hidden "thinking" token tax and no whole-poem drift when given full
-# context. Not swapped in for the fast bounded annotation task - that
-# already works fine on the small models and doesn't need this latency.
-ELABORATE_MODEL = "qwen2.5-7b-bench"
-ELABORATE_MAX_TOKENS = 400
-ELABORATE_TIMEOUT_S = 220
+# CPU-only model for elaborate, whole-poem-aware scene descriptions.
+# Benchmarked bonsai-27b (too slow, 8+min timeout), gemma-4-e2b (works but
+# burns a hidden "thinking" token tax), qwen2.5-7b-instruct (clean, ~130s/
+# scene), lfm2-1.2b-bench (also clean, ~40s/scene - 3x faster, no quality
+# loss once given a generous token budget and the consistency rules in
+# elaborate_scene_template.txt). gemma-3-1b-bench, by contrast, drifted
+# off-poem and re-introduced the color-contradiction bug even with the
+# same prompt - not used here despite being similarly fast.
+ELABORATE_MODEL = "lfm2-1.2b-bench"
+ELABORATE_MAX_TOKENS = 500
+ELABORATE_TIMEOUT_S = 90
 
 SECONDS_PER_SYLLABLE = 0.35
 MIN_LINE_DURATION_S = 1.5
@@ -157,12 +159,36 @@ def annotate_line(line_text: str, line_index: int, line_total: int, cast_so_far:
                 "mood": "gentle and playful"}
 
 
+ELABORATE_RETRIES = 2
+ELABORATE_SIMILARITY_THRESHOLD = 0.55  # above this, treat as a near-duplicate of the previous scene
+
+
+def _elaborate_description_is_valid(text: str, previous_description: str) -> bool:
+    if not text:
+        return False
+    if "\n" in text:
+        return False  # verse/line-break formatting leaked in - not plain prose
+    if previous_description:
+        similarity = difflib.SequenceMatcher(None, text, previous_description).ratio()
+        if similarity > ELABORATE_SIMILARITY_THRESHOLD:
+            return False  # near-duplicate of the previous scene, not a fresh description
+    return True
+
+
 def draft_elaborate_scene_description(all_lines: list[str], line_index: int, speaker: str,
-                                       base_llm_config: dict, fallback_description: str) -> str:
-    """Rich, whole-poem-aware scene description via a bigger CPU-only model.
-    Falls back to the short per-line description (already computed by
-    annotate_line) on any failure - never blocks the pipeline."""
-    system_prompt = build_elaborate_scene_prompt(all_lines, line_index, speaker)
+                                       base_llm_config: dict, fallback_description: str,
+                                       previous_description: str = "") -> str:
+    """Rich, whole-poem-aware scene description via a small CPU-only model,
+    chained to the previous scene's description so appearance/setting stay
+    visually consistent scene-to-scene instead of being reinvented each
+    time (GPT-22 follow-up - this is what actually fixed the black/white
+    wool contradiction the user caught). Validates against two failure
+    modes discovered chaining full descriptions caused: drifting into
+    verse instead of prose, and near-duplicating the previous scene
+    instead of writing something new. Falls back to the short per-line
+    description (already computed by annotate_line) if it can't produce a
+    valid one - never blocks the pipeline."""
+    system_prompt = build_elaborate_scene_prompt(all_lines, line_index, speaker, previous_description)
     elaborate_config = {
         "endpoint": base_llm_config["endpoint"],
         "primary": ELABORATE_MODEL,
@@ -171,15 +197,23 @@ def draft_elaborate_scene_description(all_lines: list[str], line_index: int, spe
         "max_retries": 1,
         "excluded": base_llm_config.get("excluded", []),
     }
-    try:
-        result = call_with_fallback(system_prompt=system_prompt, user_prompt="Write the scene description now.",
-                                     llm_config=elaborate_config, parse_json=False, max_tokens=ELABORATE_MAX_TOKENS)
+    for attempt in range(1, ELABORATE_RETRIES + 1):
+        try:
+            result = call_with_fallback(system_prompt=system_prompt, user_prompt="Write the scene description now.",
+                                         llm_config=elaborate_config, parse_json=False, max_tokens=ELABORATE_MAX_TOKENS)
+        except LLMError as e:
+            log_with_fields(logger, 30, "elaborate scene description call failed", line_index=line_index,
+                             attempt=attempt, error=str(e))
+            continue
         text = result.text.strip()
-        return text if text else fallback_description
-    except LLMError as e:
-        log_with_fields(logger, 30, "elaborate scene description failed, keeping short fallback",
-                         line_index=line_index, error=str(e))
-        return fallback_description
+        if _elaborate_description_is_valid(text, previous_description):
+            return text
+        log_with_fields(logger, 30, "elaborate scene description failed validation, retrying",
+                         line_index=line_index, attempt=attempt)
+
+    log_with_fields(logger, 30, "elaborate scene description exhausted retries, keeping short fallback",
+                     line_index=line_index)
+    return fallback_description
 
 
 def extract_cast(cast_so_far: list[str], speaker: str) -> list[str]:
@@ -202,6 +236,7 @@ def generate_script(rhyme_text: str, config: PipelineConfig | None = None) -> di
 
     scenes = []
     cast: list[str] = []
+    previous_description = ""
     for i, line in enumerate(lines, start=1):
         annotation = annotate_line(line, i, len(lines), cast, config.llm)
         cast = extract_cast(cast, annotation["speaker"])
@@ -209,7 +244,8 @@ def generate_script(rhyme_text: str, config: PipelineConfig | None = None) -> di
 
         if elaborate_enabled:
             scene_description = draft_elaborate_scene_description(
-                lines, i, annotation["speaker"], config.llm, scene_description)
+                lines, i, annotation["speaker"], config.llm, scene_description, previous_description)
+            previous_description = scene_description
             log_with_fields(logger, 20, "elaborate scene description drafted", line_index=i)
 
         scenes.append({

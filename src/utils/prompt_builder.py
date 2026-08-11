@@ -42,9 +42,26 @@ def build_dialogue_prompt(line_text: str, line_index: int, line_total: int, cast
     )
 
 
-def build_elaborate_scene_prompt(all_lines: list[str], line_index: int, speaker: str) -> str:
+PREVIOUS_SCENE_ANCHOR_CHARS = 180  # short facts-only excerpt, not the full flowery paragraph -
+                                    # feeding the whole previous description back caused the model
+                                    # to drift into continuing its style (verse) instead of writing
+                                    # fresh prose (see GPT-22 follow-up)
+
+
+def build_elaborate_scene_prompt(all_lines: list[str], line_index: int, speaker: str,
+                                  previous_description: str = "") -> str:
     template = load_template("elaborate_scene_template.txt")
     full_poem = "\n".join(all_lines)
+    if previous_description:
+        anchor = previous_description.replace("\n", " ").strip()[:PREVIOUS_SCENE_ANCHOR_CHARS]
+        previous_scene_block = (
+            f"\nEstablished so far (facts only, for consistency - do not copy this wording): {anchor}...\n"
+            f"Keep the same subject's appearance (color, markings, size) and overall setting/world "
+            f"consistent with these established facts - only change what the new line actually "
+            f"changes (action, camera framing, time of day if implied).\n"
+        )
+    else:
+        previous_scene_block = ""
     return render(
         template,
         full_poem=full_poem,
@@ -52,6 +69,7 @@ def build_elaborate_scene_prompt(all_lines: list[str], line_index: int, speaker:
         line_index=str(line_index),
         line_total=str(len(all_lines)),
         target_line=all_lines[line_index - 1],
+        previous_scene_block=previous_scene_block,
     )
 
 

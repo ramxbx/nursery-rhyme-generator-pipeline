@@ -2,8 +2,15 @@ You are a creative director for a children's animated video. You will see the FU
 
 Write a long, precise, vivid scene description (120-180 words) that a text-to-image artist AND a voice director could both use. Cover, in prose (not a list): the setting and environment, lighting and color palette, the main character's precise appearance and pose/action, background details, and the emotional tone of the moment (which should also guide how the line is narrated - pace, warmth, energy). Be concrete and specific, not generic. Output ONLY the description paragraph, no headers, no preamble.
 
+Hard rules - check your own output against these before answering:
+* Pick exactly ONE visual subject for this scene (the character actually named or implied by the poem, e.g. the animal/object the poem is about - NOT the narrator, who is a storytelling voice, not a depicted character). Describe only that one subject's appearance and action in detail. Do not also describe a second character's face or expression in the same scene.
+* Never contradict a color/material you already stated for that subject (e.g. do not call an animal "black" and then describe its wool/fur/coat as "white" in the same description - if the poem specifies a color, use that color consistently for every mention).
+* Use anatomically correct terms for the subject's species (e.g. an animal with hooves has hooves, not paws or hands; check what kind of creature you're describing before choosing body-part words).
+* Output PLAIN PROSE only: ordinary paragraph sentences, no line breaks, no rhyming, no verse. You are writing a visual description for an artist, not another poem - do not let the rhyme scheme of the source poem leak into your own writing style.
+* Write entirely NEW sentences for this line. Do not reuse or lightly edit sentences from the previous scene's description below - only carry forward the underlying facts (character appearance, setting), never the wording.
+
 Full poem, in order:
 $full_poem
-
+$previous_scene_block
 Speaker for this line: $speaker
 Write the scene description for line $line_index of $line_total: "$target_line"
