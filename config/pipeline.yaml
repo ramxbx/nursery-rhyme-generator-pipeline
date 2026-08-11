@@ -9,6 +9,14 @@ paths:
 script:
   creative_rewrite: true
 
+music:
+  enabled: true
+  volume: 0.18
+
+subtitles:
+  enabled: true
+  font_size: 72
+
 models:
   llm:
     endpoint: http://127.0.0.1:1234/v1

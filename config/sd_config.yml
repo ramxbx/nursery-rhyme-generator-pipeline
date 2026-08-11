@@ -3,7 +3,8 @@ base_model: stable-diffusion-v1-5/stable-diffusion-v1-5
 variant: fp16
 lora: latent-consistency/lcm-lora-sdv1-5
 steps: 4
-guidance_scale: 1.0
+guidance_scale: 1.5
+negative_prompt: "blurry, distorted, deformed, extra limbs, extra fingers, mutated, text, watermark, signature, ugly, low quality, scary, dark, grayscale"
 width: 512
 height: 288
 output_width: 1920

@@ -1,0 +1,64 @@
+"""Lightweight 'sing-song' melodic pitch-contour shaping for narration.
+
+Not true singing-voice synthesis - that needs a note-aligned score and a
+dedicated model like DiffSinger (a much bigger lift, flagged as a stretch
+goal in GPT-12). This applies a repeating pentatonic pitch contour across
+a line's natural word-segments via librosa pitch-shifting, giving spoken
+narration a melodic, sung-like cadence without any new model dependency.
+"""
+from __future__ import annotations
+
+import librosa
+import numpy as np
+
+DEFAULT_CONTOUR_SEMITONES = [0, 2, 4, 5, 4, 2, 0, -2]
+CROSSFADE_S = 0.03
+MIN_SEGMENT_S = 0.05
+
+
+def _split_into_segments(audio: np.ndarray, n_segments: int) -> list[np.ndarray]:
+    n_segments = max(1, n_segments)
+    bounds = np.linspace(0, len(audio), n_segments + 1).astype(int)
+    return [audio[bounds[i]:bounds[i + 1]] for i in range(n_segments)]
+
+
+def _crossfade_concat(segments: list[np.ndarray], sr: int) -> np.ndarray:
+    if len(segments) == 1:
+        return segments[0]
+    fade_len = max(1, int(sr * CROSSFADE_S))
+    out = segments[0].copy()
+    for seg in segments[1:]:
+        if len(out) < fade_len or len(seg) < fade_len:
+            out = np.concatenate([out, seg])
+            continue
+        fade_out = np.linspace(1.0, 0.0, fade_len, dtype=np.float32)
+        fade_in = np.linspace(0.0, 1.0, fade_len, dtype=np.float32)
+        overlap = out[-fade_len:] * fade_out + seg[:fade_len] * fade_in
+        out = np.concatenate([out[:-fade_len], overlap, seg[fade_len:]])
+    return out
+
+
+def apply_singsong_contour(audio: np.ndarray, sr: int, n_words: int,
+                            contour: list[int] | None = None) -> np.ndarray:
+    """Pitch-shift a narration clip's word-segments along a repeating
+    melodic contour. Operates on the natural (unpadded) speech only -
+    call this before adding silence padding."""
+    if len(audio) < sr * MIN_SEGMENT_S:
+        return audio
+
+    contour = contour or DEFAULT_CONTOUR_SEMITONES
+    n_segments = max(1, min(n_words, 12))
+    segments = _split_into_segments(audio, n_segments)
+
+    shifted = []
+    for i, seg in enumerate(segments):
+        if len(seg) < sr * MIN_SEGMENT_S:
+            shifted.append(seg)
+            continue
+        n_steps = contour[i % len(contour)]
+        if n_steps == 0:
+            shifted.append(seg)
+            continue
+        shifted.append(librosa.effects.pitch_shift(seg, sr=sr, n_steps=n_steps).astype(np.float32))
+
+    return _crossfade_concat(shifted, sr)

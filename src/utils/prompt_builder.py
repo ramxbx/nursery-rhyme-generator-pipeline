@@ -47,11 +47,14 @@ def build_rewrite_prompt(target_word: str) -> str:
     return render(template, target_word=target_word)
 
 
-def build_scene_image_prompt(speaker: str, subject_description: str, stage_direction: str) -> str:
+def build_scene_image_prompt(speaker: str, subject_description: str, stage_direction: str,
+                              scene_description: str = "", mood: str = "") -> str:
     template = load_template("scene_prompt_template.txt")
     return render(
         template,
         speaker=speaker,
         subject_description=subject_description,
         stage_direction=stage_direction,
+        scene_description=scene_description or "a soft, colorful children's picture-book setting",
+        mood=mood or "gentle and playful",
     )

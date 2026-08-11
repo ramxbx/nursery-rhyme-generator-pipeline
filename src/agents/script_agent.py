@@ -133,7 +133,7 @@ def annotate_line(line_text: str, line_index: int, line_total: int, cast_so_far:
             user_prompt=line_text,
             llm_config=llm_config,
             parse_json=True,
-            max_tokens=200,
+            max_tokens=280,
         )
         return _validate_annotation(result)
     except (LLMError, ValueError) as e:
@@ -141,7 +141,9 @@ def annotate_line(line_text: str, line_index: int, line_total: int, cast_so_far:
                          line_index=line_index, error=str(e))
         # Deterministic fallback so the pipeline never hard-fails on a single bad line.
         speaker = cast_so_far[0] if cast_so_far else "Narrator"
-        return {"speaker": speaker, "stage_direction": "A gentle, child-friendly scene."}
+        return {"speaker": speaker, "stage_direction": "A gentle, child-friendly scene.",
+                "scene_description": "A soft, colorful children's picture-book setting.",
+                "mood": "gentle and playful"}
 
 
 def extract_cast(cast_so_far: list[str], speaker: str) -> list[str]:
@@ -169,6 +171,8 @@ def generate_script(rhyme_text: str, config: PipelineConfig | None = None) -> di
             "line": line,
             "speaker": annotation["speaker"],
             "stage_direction": annotation["stage_direction"],
+            "scene_description": annotation.get("scene_description") or "A soft, colorful children's picture-book setting.",
+            "mood": annotation.get("mood") or "gentle and playful",
             "duration_s": estimate_duration(line),
         })
         log_with_fields(logger, 20, "line processed", line_index=i, total=len(lines), speaker=annotation["speaker"])

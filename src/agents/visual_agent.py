@@ -61,9 +61,11 @@ def draft_subject_description(speaker: str, llm_config: dict) -> str:
         return f"a friendly cartoon {speaker.lower()}, soft pastel colors"
 
 
-def draft_image_prompt(speaker: str, subject_description: str, stage_direction: str, llm_config: dict) -> str:
+def draft_image_prompt(speaker: str, subject_description: str, stage_direction: str, llm_config: dict,
+                        scene_description: str = "", mood: str = "") -> str:
     """Bounded prompt drafting: expand scene data into an SD-style prompt."""
-    template_prompt = build_scene_image_prompt(speaker, subject_description, stage_direction)
+    template_prompt = build_scene_image_prompt(speaker, subject_description, stage_direction,
+                                                scene_description, mood)
     try:
         result = call_with_fallback(
             system_prompt=template_prompt,
@@ -76,7 +78,7 @@ def draft_image_prompt(speaker: str, subject_description: str, stage_direction: 
         return text if text else template_prompt
     except (LLMError, PromptError) as e:
         log_with_fields(logger, 30, "image prompt drafting failed, using template directly", error=str(e))
-        return f"{subject_description}, {stage_direction}, picture-book illustration style"
+        return f"{subject_description}, {stage_direction}, {scene_description}, picture-book illustration style"
 
 
 def _is_low_quality(image) -> bool:
@@ -95,6 +97,7 @@ def generate_image(pipe, prompt: str, seed: int, sd_config: dict):
         try:
             result = pipe(
                 prompt,
+                negative_prompt=sd_config.get("negative_prompt"),
                 num_inference_steps=sd_config.get("steps", 4),
                 guidance_scale=sd_config.get("guidance_scale", 1.0),
                 width=sd_config.get("width", 512),
@@ -130,7 +133,8 @@ def generate_visuals(script: dict, config: PipelineConfig) -> list[dict]:
             log_with_fields(logger, 20, "subject description fixed", speaker=speaker,
                              description=subject_descriptions[speaker])
 
-        prompt = draft_image_prompt(speaker, subject_descriptions[speaker], scene["stage_direction"], config.llm)
+        prompt = draft_image_prompt(speaker, subject_descriptions[speaker], scene["stage_direction"], config.llm,
+                                     scene.get("scene_description", ""), scene.get("mood", ""))
         seed = seed_for_character(speaker)
         image, pipe = generate_image(pipe, prompt, seed, config.sd)
 
