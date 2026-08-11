@@ -63,10 +63,19 @@ def build_rewrite_prompt(target_word: str) -> str:
 def build_scene_image_prompt(speaker: str, subject_description: str, stage_direction: str,
                               scene_description: str = "", mood: str = "") -> str:
     template = load_template("scene_prompt_template.txt")
+    if subject_description:
+        subject_line = (f"Character/subject (must appear first, be specific: species/type + 2-3 key visual "
+                         f"traits): {subject_description}, as {speaker}")
+    else:
+        # No fixed character for this speaker (e.g. "Narrator" - not a
+        # depicted character) - pull the subject from the scene itself
+        # instead of inventing an unrelated persona.
+        subject_line = ("There is no separate fixed character for this scene. Identify the SINGLE main visual "
+                         "subject described below and put IT first, specifically (species/type + 2-3 key visual "
+                         "traits) - do not invent an unrelated character.")
     return render(
         template,
-        speaker=speaker,
-        subject_description=subject_description,
+        subject_line=subject_line,
         stage_direction=stage_direction,
         scene_description=scene_description or "a soft, colorful children's picture-book setting",
         mood=mood or "gentle and playful",

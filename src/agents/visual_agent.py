@@ -85,7 +85,7 @@ def draft_image_prompt(speaker: str, subject_description: str, stage_direction: 
         log_with_fields(logger, 30, "image prompt drafting failed, using template directly", error=str(e))
         text = f"{subject_description}, {stage_direction}, {scene_description}"
 
-    return f"{text}, {STYLE_ANCHOR}"
+    return text
 
 
 def _is_low_quality(image) -> bool:
@@ -126,6 +126,27 @@ def generate_image(pipe, prompt: str, seed: int, sd_config: dict):
     return last_image, pipe
 
 
+CLIP_TOKEN_BUDGET = 70  # SD1.5's CLIP text encoder hard-truncates at 77; leave headroom for special tokens
+DRAFT_TOKEN_BUDGET = 50  # leaves room for STYLE_ANCHOR to be appended and still fit under CLIP_TOKEN_BUDGET
+
+
+def _truncate_to_clip_limit(pipe, text: str, max_tokens: int = CLIP_TOKEN_BUDGET) -> str:
+    """Hard safety net: SD1.5's CLIP text encoder silently truncates at 77
+    tokens regardless of prompt drafting instructions - verified this was
+    happening even after asking the LLM to keep it short (GPT-22 follow-up).
+    Truncates deterministically by token count, not word/char count, so the
+    subject (front-loaded by the prompt template) survives regardless of
+    how verbose the drafted text turns out to be."""
+    tokenizer = pipe.tokenizer
+    ids = tokenizer(text, add_special_tokens=False)["input_ids"]
+    if len(ids) <= max_tokens:
+        return text
+    truncated = tokenizer.decode(ids[:max_tokens])
+    log_with_fields(logger, 30, "image prompt exceeded CLIP token limit, truncated",
+                     original_tokens=len(ids), max_tokens=max_tokens)
+    return truncated
+
+
 def generate_visuals(script: dict, config: PipelineConfig) -> list[dict]:
     dirs = ensure_dirs(config.paths)
     pipe = build_pipeline(config.sd)
@@ -135,13 +156,28 @@ def generate_visuals(script: dict, config: PipelineConfig) -> list[dict]:
 
     for i, scene in enumerate(script["scenes"], start=1):
         speaker = scene["speaker"]
-        if speaker not in subject_descriptions:
+        # "Narrator" is a storytelling role, not a depicted character -
+        # drafting a visual persona for it invents an unrelated mascot
+        # (e.g. a bunny) that then gets front-loaded ahead of the scene's
+        # actual subject. Leave it empty so the prompt template pulls the
+        # subject from scene_description instead, which is reliably about
+        # the poem's real subject (see GPT-22 follow-up).
+        if speaker.lower() == "narrator":
+            subject_descriptions.setdefault(speaker, "")
+        elif speaker not in subject_descriptions:
             subject_descriptions[speaker] = draft_subject_description(speaker, config.llm)
             log_with_fields(logger, 20, "subject description fixed", speaker=speaker,
                              description=subject_descriptions[speaker])
 
-        prompt = draft_image_prompt(speaker, subject_descriptions[speaker], scene["stage_direction"], config.llm,
-                                     scene.get("scene_description", ""), scene.get("mood", ""))
+        draft = draft_image_prompt(speaker, subject_descriptions[speaker], scene["stage_direction"], config.llm,
+                                    scene.get("scene_description", ""), scene.get("mood", ""))
+        # Truncate the draft first (subject is front-loaded by the prompt
+        # template, so it survives), then append the style anchor and
+        # truncate again as a final safety net - guarantees both the
+        # subject AND the style anchor fit within CLIP's 77-token limit
+        # regardless of how verbose the LLM's draft turns out to be.
+        draft = _truncate_to_clip_limit(pipe, draft, max_tokens=DRAFT_TOKEN_BUDGET)
+        prompt = _truncate_to_clip_limit(pipe, f"{draft}, {STYLE_ANCHOR}")
         seed = seed_for_character(speaker)
         image, pipe = generate_image(pipe, prompt, seed, config.sd)
 
