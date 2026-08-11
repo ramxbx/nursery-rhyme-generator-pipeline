@@ -1,32 +1,39 @@
 {
   "cast": [
-    "Narrator",
-    "Star"
+    "Narrator"
   ],
   "scenes": [
     {
-      "line": "Twinkle, twinkle, shining star,",
+      "line": "Twinkle, twinkle, little star,",
       "speaker": "Narrator",
-      "stage_direction": "Narrates celestial object",
-      "duration_s": 2.85
+      "stage_direction": "Appears as a shining point in the night sky",
+      "scene_description": "Glowing constellation",
+      "mood": "calm and dreamy",
+      "duration_s": 2.5
     },
     {
       "line": "How I wonder what you are.",
       "speaker": "Narrator",
-      "stage_direction": "Narrator expresses curiosity about another character's appearance",
+      "stage_direction": "Character interacts with object/other character",
+      "scene_description": "Person looking at something mysterious or unknown",
+      "mood": "curious and playful",
       "duration_s": 2.95
     },
     {
       "line": "Up above the world so high,",
-      "speaker": "Star",
-      "stage_direction": "Narrating skyline",
+      "speaker": "Narrator",
+      "stage_direction": "Descending",
+      "scene_description": "A magical skyline with twinkling stars",
+      "mood": "whimsical",
       "duration_s": 3.15
     },
     {
-      "line": "Like a sparkling gem in the vast sky.",
+      "line": "Like a sparkling gem in the boundless sky.",
       "speaker": "Narrator",
-      "stage_direction": "Describing the star's appearance",
-      "duration_s": 3.65
+      "stage_direction": "Describing celestial scene",
+      "scene_description": "Dreamy and magical",
+      "mood": "Enchanting",
+      "duration_s": 4.0
     }
   ]
 }
