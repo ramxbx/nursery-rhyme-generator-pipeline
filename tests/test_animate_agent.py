@@ -1,0 +1,56 @@
+"""Unit tests for animate_agent / ffmpeg_helper (GPT-16). Pure timing math
+and validation logic - no real ffmpeg invocation."""
+import pytest
+
+from src.agents import animate_agent as an
+from src.utils.ffmpeg_helper import compute_scene_timeline
+
+
+def test_compute_scene_timeline_matches_hand_computed_values():
+    timeline = compute_scene_timeline([2.0, 3.0, 2.5], crossfade_s=0.5)
+    assert timeline == [(0.0, 2.0), (1.5, 4.5), (4.0, 6.5)]
+
+
+def test_compute_scene_timeline_clamps_crossfade_to_short_scenes():
+    timeline = compute_scene_timeline([0.2, 3.0], crossfade_s=0.5)
+    # xfade_dur clamped to min(0.5, 0.2, 3.0) = 0.2, not 0.5
+    assert timeline[1][0] == pytest.approx(0.0)
+
+
+def test_compute_scene_timeline_single_scene():
+    assert compute_scene_timeline([4.0], crossfade_s=0.5) == [(0.0, 4.0)]
+
+
+def test_compute_scene_timeline_empty():
+    assert compute_scene_timeline([], crossfade_s=0.5) == []
+
+
+def test_validate_output_raises_on_wrong_resolution(monkeypatch, tmp_path):
+    monkeypatch.setattr(an, "probe", lambda path: {
+        "streams": [
+            {"codec_type": "video", "codec_name": "h264", "width": 1280, "height": 720, "r_frame_rate": "24/1"},
+            {"codec_type": "audio", "codec_name": "aac"},
+        ]
+    })
+    with pytest.raises(an.AssemblyError, match="1920x1080"):
+        an._validate_output(tmp_path / "fake.mp4", 1920, 1080, 24)
+
+
+def test_validate_output_raises_on_missing_audio_stream(monkeypatch, tmp_path):
+    monkeypatch.setattr(an, "probe", lambda path: {
+        "streams": [
+            {"codec_type": "video", "codec_name": "h264", "width": 1920, "height": 1080, "r_frame_rate": "24/1"},
+        ]
+    })
+    with pytest.raises(an.AssemblyError, match="audio"):
+        an._validate_output(tmp_path / "fake.mp4", 1920, 1080, 24)
+
+
+def test_validate_output_passes_for_correct_stream_info(monkeypatch, tmp_path):
+    monkeypatch.setattr(an, "probe", lambda path: {
+        "streams": [
+            {"codec_type": "video", "codec_name": "h264", "width": 1920, "height": 1080, "r_frame_rate": "24/1"},
+            {"codec_type": "audio", "codec_name": "aac"},
+        ]
+    })
+    an._validate_output(tmp_path / "fake.mp4", 1920, 1080, 24)  # should not raise

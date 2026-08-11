@@ -6,34 +6,34 @@
     {
       "line": "Twinkle, twinkle, little star,",
       "speaker": "Narrator",
-      "stage_direction": "Appears as a shining point in the night sky",
-      "scene_description": "Glowing constellation",
-      "mood": "calm and dreamy",
+      "stage_direction": "A gentle, child-friendly scene.",
+      "scene_description": "A soft, colorful children's picture-book setting.",
+      "mood": "gentle and playful",
       "duration_s": 2.5
     },
     {
       "line": "How I wonder what you are.",
       "speaker": "Narrator",
-      "stage_direction": "Character interacts with object/other character",
-      "scene_description": "Person looking at something mysterious or unknown",
-      "mood": "curious and playful",
+      "stage_direction": "A gentle, child-friendly scene.",
+      "scene_description": "A soft, colorful children's picture-book setting.",
+      "mood": "gentle and playful",
       "duration_s": 2.95
     },
     {
       "line": "Up above the world so high,",
       "speaker": "Narrator",
-      "stage_direction": "Descending",
-      "scene_description": "A magical skyline with twinkling stars",
-      "mood": "whimsical",
+      "stage_direction": "A gentle, child-friendly scene.",
+      "scene_description": "A soft, colorful children's picture-book setting.",
+      "mood": "gentle and playful",
       "duration_s": 3.15
     },
     {
-      "line": "Like a sparkling gem in the boundless sky.",
+      "line": "Like a diamond in the sky.",
       "speaker": "Narrator",
-      "stage_direction": "Describing celestial scene",
-      "scene_description": "Dreamy and magical",
-      "mood": "Enchanting",
-      "duration_s": 4.0
+      "stage_direction": "A gentle, child-friendly scene.",
+      "scene_description": "A soft, colorful children's picture-book setting.",
+      "mood": "gentle and playful",
+      "duration_s": 2.95
     }
   ]
 }
