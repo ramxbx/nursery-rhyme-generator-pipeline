@@ -22,6 +22,7 @@ from piper import PiperVoice, SynthesisConfig
 from src.config import PipelineConfig, load_config
 from src.utils.file_manager import ensure_dirs, read_json, safe_write_json, scene_path
 from src.utils.logger import get_logger, log_with_fields
+from src.utils.singing import apply_singsong_contour
 
 logger = get_logger("audio_agent")
 
@@ -57,6 +58,9 @@ def synthesize_line(voice: PiperVoice, text: str, target_duration_s: float, tts_
 
     orig_sr = chunks[0].sample_rate
     audio = np.concatenate([c.audio_float_array for c in chunks])
+
+    if tts_config.get("singing_mode", True):
+        audio = apply_singsong_contour(audio, orig_sr, n_words=max(1, len(text.split())))
 
     natural_duration = len(audio) / orig_sr
     if natural_duration < target_duration_s:
