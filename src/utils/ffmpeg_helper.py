@@ -94,6 +94,24 @@ def mix_background_music(video_path: Path, music_path: Path, out_path: Path, mus
     return out_path
 
 
+def compute_scene_timeline(durations: list[float], crossfade_s: float) -> list[tuple[float, float]]:
+    """(start, end) time for each scene in the crossfaded output timeline,
+    using the exact same per-pair clamped crossfade duration as
+    crossfade_concat's xfade/acrossfade filter graph - shared so subtitle
+    timing (GPT-21) can never drift from the actual video timing."""
+    if not durations:
+        return []
+    starts, ends = [0.0], [durations[0]]
+    running_duration = durations[0]
+    for i in range(1, len(durations)):
+        xfade_dur = min(crossfade_s, durations[i - 1], durations[i])
+        start = max(0.0, running_duration - xfade_dur)
+        starts.append(start)
+        ends.append(start + durations[i])
+        running_duration = running_duration + durations[i] - xfade_dur
+    return list(zip(starts, ends))
+
+
 def crossfade_concat(clips: list[Path], durations: list[float], fps: int,
                       out_path: Path, crossfade_s: float = 0.4) -> Path:
     """Chain-merge scene clips with an xfade/acrossfade transition between
@@ -126,6 +144,24 @@ def crossfade_concat(clips: list[Path], durations: list[float], fps: int,
         "-map", f"[{prev_v}]", "-map", f"[{prev_a}]",
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps),
         "-c:a", "aac",
+        str(out_path),
+    ]
+    run(args)
+    return out_path
+
+
+def burn_subtitles(video_path: Path, ass_path: Path, out_path: Path) -> Path:
+    """Burn an ASS subtitle file into the video. Re-encodes video (required
+    for burn-in); audio is copied untouched."""
+    # ffmpeg's filtergraph parser needs forward slashes and an escaped
+    # colon for Windows paths passed to the ass= filter argument.
+    escaped_path = str(ass_path).replace("\\", "/").replace(":", "\\:")
+    args = [
+        ffmpeg_path(), "-y",
+        "-i", str(video_path),
+        "-vf", f"ass='{escaped_path}'",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        "-c:a", "copy",
         str(out_path),
     ]
     run(args)

@@ -18,12 +18,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import soundfile as sf
 
 from src.config import PipelineConfig, load_config
-from src.utils.ffmpeg_helper import build_scene_clip, crossfade_concat, mix_background_music, probe
+from src.utils.ffmpeg_helper import (
+    build_scene_clip, burn_subtitles, compute_scene_timeline, crossfade_concat,
+    mix_background_music, probe,
+)
 from src.utils.file_manager import ensure_dirs, read_json
 from src.utils.logger import get_logger, log_with_fields
 from src.utils.music_generator import generate_background_music
+from src.utils.subtitles import write_ass_subtitles
 
 logger = get_logger("animate_agent")
+
+CROSSFADE_S = 0.4
 
 
 class AssemblyError(Exception):
@@ -66,7 +72,7 @@ def assemble_video(images_manifest: list[dict], audio_manifest: list[dict],
 
     with tempfile.TemporaryDirectory(dir=dirs["output_dir"]) as tmp:
         tmp_dir = Path(tmp)
-        clips, durations = [], []
+        clips, durations, lines = [], [], []
         for idx in scene_indices:
             image_path = Path(images_by_scene[idx]["image_path"])
             audio_entry = audio_by_scene[idx]
@@ -77,10 +83,11 @@ def assemble_video(images_manifest: list[dict], audio_manifest: list[dict],
             build_scene_clip(image_path, audio_path, duration, fps, width, height, clip_path)
             clips.append(clip_path)
             durations.append(duration)
+            lines.append(audio_entry.get("line", ""))
             log_with_fields(logger, 20, "scene clip built", scene_index=idx, duration_s=duration)
 
         merged_path = tmp_dir / "merged_no_music.mp4"
-        crossfade_concat(clips, durations, fps, merged_path)
+        crossfade_concat(clips, durations, fps, merged_path, crossfade_s=CROSSFADE_S)
 
         music_config = config.pipeline.get("music", {})
         if music_config.get("enabled", True):
@@ -89,10 +96,22 @@ def assemble_video(images_manifest: list[dict], audio_manifest: list[dict],
             music = generate_background_music(float(total_duration), sample_rate=sample_rate)
             music_path = tmp_dir / "background_music.wav"
             sf.write(music_path, music, sample_rate, subtype="PCM_16")
-            mix_background_music(merged_path, music_path, out_path, music_config.get("volume", 0.18))
+            with_music_path = tmp_dir / "with_music.mp4"
+            mix_background_music(merged_path, music_path, with_music_path, music_config.get("volume", 0.18))
             log_with_fields(logger, 20, "background music mixed", duration_s=round(float(total_duration), 2))
         else:
-            merged_path.replace(out_path)
+            with_music_path = merged_path
+
+        subtitles_config = config.pipeline.get("subtitles", {})
+        if subtitles_config.get("enabled", True):
+            timeline = compute_scene_timeline(durations, CROSSFADE_S)
+            ass_path = tmp_dir / "subtitles.ass"
+            write_ass_subtitles(lines, timeline, ass_path, width, height,
+                                 font_size=subtitles_config.get("font_size", 72))
+            burn_subtitles(with_music_path, ass_path, out_path)
+            log_with_fields(logger, 20, "subtitles burned in", num_lines=len(lines))
+        else:
+            with_music_path.replace(out_path)
 
     _validate_output(out_path, width, height, fps)
     log_with_fields(logger, 20, "assembly validated", out_path=str(out_path))
