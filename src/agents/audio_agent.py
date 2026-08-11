@@ -45,7 +45,8 @@ def resample_linear(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarr
     return np.interp(target_t, orig_t, audio).astype(np.float32)
 
 
-def synthesize_line(voice: PiperVoice, text: str, target_duration_s: float, tts_config: dict) -> np.ndarray:
+def synthesize_line(voice: PiperVoice, text: str, target_duration_s: float, tts_config: dict,
+                     melody_offset: int = 0) -> tuple[np.ndarray, int]:
     syn_config = SynthesisConfig(
         noise_scale=tts_config.get("noise_scale", 0.667),
         noise_w_scale=tts_config.get("noise_w", 0.8),
@@ -60,7 +61,8 @@ def synthesize_line(voice: PiperVoice, text: str, target_duration_s: float, tts_
     audio = np.concatenate([c.audio_float_array for c in chunks])
 
     if tts_config.get("singing_mode", True):
-        audio = apply_singsong_contour(audio, orig_sr, n_words=max(1, len(text.split())))
+        audio, melody_offset = apply_singsong_contour(
+            audio, orig_sr, n_words=max(1, len(text.split())), start_offset=melody_offset)
 
     natural_duration = len(audio) / orig_sr
     if natural_duration < target_duration_s:
@@ -70,7 +72,7 @@ def synthesize_line(voice: PiperVoice, text: str, target_duration_s: float, tts_
         log_with_fields(logger, 30, "speech longer than target duration, not truncating",
                          natural_s=round(natural_duration, 2), target_s=target_duration_s)
 
-    return resample_linear(audio, orig_sr, tts_config.get("sample_rate", 48000))
+    return resample_linear(audio, orig_sr, tts_config.get("sample_rate", 48000)), melody_offset
 
 
 def generate_audio(script: dict, config: PipelineConfig) -> list[dict]:
@@ -79,8 +81,9 @@ def generate_audio(script: dict, config: PipelineConfig) -> list[dict]:
     sample_rate = config.tts.get("sample_rate", 48000)
 
     manifest = []
+    melody_offset = 0
     for i, scene in enumerate(script["scenes"], start=1):
-        audio = synthesize_line(voice, scene["line"], scene["duration_s"], config.tts)
+        audio, melody_offset = synthesize_line(voice, scene["line"], scene["duration_s"], config.tts, melody_offset)
         out_path = scene_path(dirs["audio_dir"], i, ".wav")
         sf.write(out_path, audio, sample_rate, subtype="PCM_16")
 

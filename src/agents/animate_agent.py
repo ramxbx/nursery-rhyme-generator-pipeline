@@ -92,8 +92,15 @@ def assemble_video(images_manifest: list[dict], audio_manifest: list[dict],
         music_config = config.pipeline.get("music", {})
         if music_config.get("enabled", True):
             total_duration = probe(merged_path)["format"]["duration"]
-            sample_rate = 48000
-            music = generate_background_music(float(total_duration), sample_rate=sample_rate)
+            if music_config.get("backend", "procedural") == "musicgen":
+                from src.utils.musicgen_generator import DEFAULT_PROMPT, generate_background_music_musicgen
+                music, sample_rate = generate_background_music_musicgen(
+                    float(total_duration), music_config.get("prompt", DEFAULT_PROMPT))
+                log_with_fields(logger, 20, "musicgen background music generated",
+                                 duration_s=round(float(total_duration), 2))
+            else:
+                sample_rate = 48000
+                music = generate_background_music(float(total_duration), sample_rate=sample_rate)
             music_path = tmp_dir / "background_music.wav"
             sf.write(music_path, music, sample_rate, subtype="PCM_16")
             with_music_path = tmp_dir / "with_music.mp4"
