@@ -4,36 +4,36 @@
   ],
   "scenes": [
     {
-      "line": "Twinkle, twinkle, little star,",
+      "line": "Twinkle, twinkling, shining star,",
       "speaker": "Narrator",
-      "stage_direction": "A gentle, child-friendly scene.",
-      "scene_description": "A soft, colorful children's picture-book setting.",
-      "mood": "gentle and playful",
-      "duration_s": 2.5
+      "stage_direction": "Appears as a twinkling star in the night sky",
+      "scene_description": "Glowing celestial body",
+      "mood": "calm and dreamy",
+      "duration_s": 3.2
     },
     {
       "line": "How I wonder what you are.",
       "speaker": "Narrator",
-      "stage_direction": "A gentle, child-friendly scene.",
-      "scene_description": "A soft, colorful children's picture-book setting.",
-      "mood": "gentle and playful",
+      "stage_direction": "Character interacts with object/other character",
+      "scene_description": "Child asking parent or friend about another person's appearance",
+      "mood": "curious and playful",
       "duration_s": 2.95
     },
     {
       "line": "Up above the world so high,",
       "speaker": "Narrator",
-      "stage_direction": "A gentle, child-friendly scene.",
-      "scene_description": "A soft, colorful children's picture-book setting.",
-      "mood": "gentle and playful",
+      "stage_direction": "Descending",
+      "scene_description": "Skies stretch wide, stars twinkle brightly",
+      "mood": "Wonderful",
       "duration_s": 3.15
     },
     {
-      "line": "Like a diamond in the sky.",
+      "line": "Like a sparkling gem in the vast sky.",
       "speaker": "Narrator",
-      "stage_direction": "A gentle, child-friendly scene.",
-      "scene_description": "A soft, colorful children's picture-book setting.",
-      "mood": "gentle and playful",
-      "duration_s": 2.95
+      "stage_direction": "Setting transition to a bright, open sky with stars beginning to appear",
+      "scene_description": "A magical celestial scene with a wide, starry backdrop",
+      "mood": "wonderful and enchanting",
+      "duration_s": 3.65
     }
   ]
 }
