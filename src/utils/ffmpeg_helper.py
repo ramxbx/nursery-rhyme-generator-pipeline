@@ -1,0 +1,112 @@
+"""FFmpeg/FFprobe invocation helpers (GPT-13's assembly backend)."""
+from __future__ import annotations
+
+import json
+import shutil
+import subprocess
+from pathlib import Path
+
+# Winget's per-user PATH registration isn't visible to processes spawned
+# from a shell that started before the install - fall back to the known
+# install location so this doesn't silently break in a stale shell.
+_WINGET_FFMPEG_DIR = Path(
+    "C:/Users/abhiv/AppData/Local/Microsoft/WinGet/Packages/"
+    "Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-9.0-full_build/bin"
+)
+
+
+class FFmpegError(Exception):
+    pass
+
+
+def _find_binary(name: str) -> str:
+    found = shutil.which(name)
+    if found:
+        return found
+    fallback = _WINGET_FFMPEG_DIR / f"{name}.exe"
+    if fallback.exists():
+        return str(fallback)
+    raise FFmpegError(f"{name} not found on PATH or at {fallback}")
+
+
+def ffmpeg_path() -> str:
+    return _find_binary("ffmpeg")
+
+
+def ffprobe_path() -> str:
+    return _find_binary("ffprobe")
+
+
+def run(args: list[str]) -> str:
+    result = subprocess.run(args, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise FFmpegError(f"Command failed ({args[0]}): {result.stderr[-2000:]}")
+    return result.stdout
+
+
+def probe(path: Path) -> dict:
+    out = run([ffprobe_path(), "-v", "quiet", "-print_format", "json",
+               "-show_format", "-show_streams", str(path)])
+    return json.loads(out)
+
+
+def build_scene_clip(image_path: Path, audio_path: Path, duration_s: float,
+                      fps: int, width: int, height: int, out_path: Path) -> Path:
+    """Ken Burns pan/zoom on a static image, upscaled to (width, height),
+    muxed with the scene's audio, trimmed to duration_s."""
+    n_frames = max(1, int(round(duration_s * fps)))
+    zoompan = (
+        f"scale={width}:{height}:flags=lanczos,"
+        f"zoompan=z='min(zoom+0.0008,1.15)':d={n_frames}:s={width}x{height}:fps={fps}"
+    )
+    args = [
+        ffmpeg_path(), "-y",
+        "-loop", "1", "-i", str(image_path),
+        "-i", str(audio_path),
+        "-filter_complex", f"[0:v]{zoompan}[v]",
+        "-map", "[v]", "-map", "1:a",
+        "-t", f"{duration_s:.3f}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps),
+        "-c:a", "aac", "-shortest",
+        str(out_path),
+    ]
+    run(args)
+    return out_path
+
+
+def crossfade_concat(clips: list[Path], durations: list[float], fps: int,
+                      out_path: Path, crossfade_s: float = 0.4) -> Path:
+    """Chain-merge scene clips with an xfade/acrossfade transition between
+    each consecutive pair."""
+    if len(clips) == 1:
+        args = [ffmpeg_path(), "-y", "-i", str(clips[0]), "-c", "copy", str(out_path)]
+        run(args)
+        return out_path
+
+    inputs = []
+    for c in clips:
+        inputs += ["-i", str(c)]
+
+    filter_parts = []
+    running_duration = durations[0]
+    prev_v, prev_a = "0:v", "0:a"
+    for i in range(1, len(clips)):
+        xfade_dur = min(crossfade_s, durations[i - 1], durations[i])
+        offset = max(0.0, running_duration - xfade_dur)
+        out_v, out_a = f"v{i}", f"a{i}"
+        filter_parts.append(f"[{prev_v}][{i}:v]xfade=transition=fade:duration={xfade_dur:.3f}:offset={offset:.3f}[{out_v}]")
+        filter_parts.append(f"[{prev_a}][{i}:a]acrossfade=d={xfade_dur:.3f}[{out_a}]")
+        running_duration = running_duration + durations[i] - xfade_dur
+        prev_v, prev_a = out_v, out_a
+
+    filter_complex = ";".join(filter_parts)
+    args = [
+        ffmpeg_path(), "-y", *inputs,
+        "-filter_complex", filter_complex,
+        "-map", f"[{prev_v}]", "-map", f"[{prev_a}]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps),
+        "-c:a", "aac",
+        str(out_path),
+    ]
+    run(args)
+    return out_path
