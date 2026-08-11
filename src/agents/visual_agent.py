@@ -61,6 +61,12 @@ def draft_subject_description(speaker: str, llm_config: dict) -> str:
         return f"a friendly cartoon {speaker.lower()}, soft pastel colors"
 
 
+# Appended to every image prompt regardless of what the LLM drafts, so the
+# cartoon/kid-drawing look stays consistent scene-to-scene rather than
+# depending on the model remembering the style instruction each call (GPT-22).
+STYLE_ANCHOR = "children's crayon drawing, bold flat cartoon colors, thick black outlines, simple shapes, kid-drawn style"
+
+
 def draft_image_prompt(speaker: str, subject_description: str, stage_direction: str, llm_config: dict,
                         scene_description: str = "", mood: str = "") -> str:
     """Bounded prompt drafting: expand scene data into an SD-style prompt."""
@@ -74,11 +80,12 @@ def draft_image_prompt(speaker: str, subject_description: str, stage_direction: 
             parse_json=False,
             max_tokens=120,
         )
-        text = result.text.strip()
-        return text if text else template_prompt
+        text = result.text.strip() or template_prompt
     except (LLMError, PromptError) as e:
         log_with_fields(logger, 30, "image prompt drafting failed, using template directly", error=str(e))
-        return f"{subject_description}, {stage_direction}, {scene_description}, picture-book illustration style"
+        text = f"{subject_description}, {stage_direction}, {scene_description}"
+
+    return f"{text}, {STYLE_ANCHOR}"
 
 
 def _is_low_quality(image) -> bool:

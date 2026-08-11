@@ -2,7 +2,7 @@ You are drafting an image-generation prompt for a single children's video scene.
 
 Weight the setting and action AT LEAST as heavily as the character - a scene that's clearly "$stage_direction, $scene_description" is more important than restating the character description. Do not just describe the character in isolation.
 
-Style: soft, colorful, child-friendly picture-book illustration.
+Style: bright, bold children's crayon/marker drawing - thick black outlines, flat saturated cartoon colors, simple construction-paper-collage shapes, kid-drawn aesthetic. NOT photorealistic, NOT painterly, NOT softly rendered.
 Character(s) in this scene: $speaker
 Consistent subject description: $subject_description
 Action / stage direction: $stage_direction
