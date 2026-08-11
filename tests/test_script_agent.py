@@ -103,7 +103,7 @@ def test_generate_script_covers_all_source_lines(monkeypatch):
     monkeypatch.setattr(sa, "annotate_line", fake_annotate)
 
     class FakeConfig:
-        pipeline = {"script": {"creative_rewrite": True}}
+        pipeline = {"script": {"creative_rewrite": True, "elaborate_scene_description": False}}
         llm = {}
 
     rhyme = "Line one,\nLine two.\nLine three."

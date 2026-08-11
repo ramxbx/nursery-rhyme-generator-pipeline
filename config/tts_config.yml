@@ -1,7 +1,7 @@
 backend: piper
 singing_mode: true
-voice_onnx: models/piper/en/en_US/lessac/medium/en_US-lessac-medium.onnx
-voice_config: models/piper/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+voice_onnx: models/piper/en/en_US/lessac/high/en_US-lessac-high.onnx
+voice_config: models/piper/en/en_US/lessac/high/en_US-lessac-high.onnx.json
 sample_rate: 48000
 bit_depth: 16
 channels: 1

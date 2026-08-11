@@ -42,6 +42,19 @@ def build_dialogue_prompt(line_text: str, line_index: int, line_total: int, cast
     )
 
 
+def build_elaborate_scene_prompt(all_lines: list[str], line_index: int, speaker: str) -> str:
+    template = load_template("elaborate_scene_template.txt")
+    full_poem = "\n".join(all_lines)
+    return render(
+        template,
+        full_poem=full_poem,
+        speaker=speaker,
+        line_index=str(line_index),
+        line_total=str(len(all_lines)),
+        target_line=all_lines[line_index - 1],
+    )
+
+
 def build_rewrite_prompt(target_word: str) -> str:
     template = load_template("rewrite_prompt_template.txt")
     return render(template, target_word=target_word)
@@ -50,10 +63,19 @@ def build_rewrite_prompt(target_word: str) -> str:
 def build_scene_image_prompt(speaker: str, subject_description: str, stage_direction: str,
                               scene_description: str = "", mood: str = "") -> str:
     template = load_template("scene_prompt_template.txt")
+    if subject_description:
+        subject_line = (f"Character/subject (must appear first, be specific: species/type + 2-3 key visual "
+                         f"traits): {subject_description}, as {speaker}")
+    else:
+        # No fixed character for this speaker (e.g. "Narrator" - not a
+        # depicted character) - pull the subject from the scene itself
+        # instead of inventing an unrelated persona.
+        subject_line = ("There is no separate fixed character for this scene. Identify the SINGLE main visual "
+                         "subject described below and put IT first, specifically (species/type + 2-3 key visual "
+                         "traits) - do not invent an unrelated character.")
     return render(
         template,
-        speaker=speaker,
-        subject_description=subject_description,
+        subject_line=subject_line,
         stage_direction=stage_direction,
         scene_description=scene_description or "a soft, colorful children's picture-book setting",
         mood=mood or "gentle and playful",

@@ -37,16 +37,26 @@ def test_resample_linear_noop_when_rates_match():
 
 
 def test_synthesize_line_pads_short_speech_to_target_duration(monkeypatch):
-    monkeypatch.setattr(aa, "apply_singsong_contour", lambda audio, sr, n_words: audio)
+    monkeypatch.setattr(aa, "apply_singsong_contour", lambda audio, sr, n_words, start_offset=0: (audio, start_offset))
     voice = FakeVoice(sample_rate=22050, natural_duration_s=1.0)
     tts_config = {"sample_rate": 48000, "singing_mode": False}
-    audio = aa.synthesize_line(voice, "Hi.", target_duration_s=2.0, tts_config=tts_config)
+    audio, offset = aa.synthesize_line(voice, "Hi.", target_duration_s=2.0, tts_config=tts_config)
     assert abs(len(audio) / 48000 - 2.0) < 0.01
+    assert offset == 0
 
 
 def test_synthesize_line_does_not_truncate_speech_longer_than_target(monkeypatch):
-    monkeypatch.setattr(aa, "apply_singsong_contour", lambda audio, sr, n_words: audio)
+    monkeypatch.setattr(aa, "apply_singsong_contour", lambda audio, sr, n_words, start_offset=0: (audio, start_offset))
     voice = FakeVoice(sample_rate=22050, natural_duration_s=3.0)
     tts_config = {"sample_rate": 48000, "singing_mode": False}
-    audio = aa.synthesize_line(voice, "A much longer line of speech.", target_duration_s=1.0, tts_config=tts_config)
+    audio, offset = aa.synthesize_line(voice, "A much longer line of speech.", target_duration_s=1.0, tts_config=tts_config)
     assert len(audio) / 48000 >= 2.9  # not cut down to 1.0s
+
+
+def test_apply_singsong_contour_threads_offset_across_calls():
+    from src.utils.singing import apply_singsong_contour
+    audio = np.random.default_rng(0).uniform(-0.1, 0.1, 22050).astype(np.float32)
+    _, offset1 = apply_singsong_contour(audio, sr=22050, n_words=4, start_offset=0)
+    assert offset1 == 4
+    _, offset2 = apply_singsong_contour(audio, sr=22050, n_words=3, start_offset=offset1)
+    assert offset2 == 7

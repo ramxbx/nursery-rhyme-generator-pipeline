@@ -2,16 +2,28 @@
 
 Not true singing-voice synthesis - that needs a note-aligned score and a
 dedicated model like DiffSinger (a much bigger lift, flagged as a stretch
-goal in GPT-12). This applies a repeating pentatonic pitch contour across
-a line's natural word-segments via librosa pitch-shifting, giving spoken
-narration a melodic, sung-like cadence without any new model dependency.
+goal in GPT-12). This applies a pitch contour across a line's natural
+word-segments via librosa pitch-shifting, giving spoken narration a
+melodic, sung-like cadence without any new model dependency.
+
+GPT-23 fix: the contour used to be an arbitrary wandering pattern with no
+relationship to any real tune, which is why it didn't sound "in tune" -
+melodically varied, but not actually music. Now defaults to the real
+"Twinkle Twinkle Little Star" melody (semitone offsets from the tonic),
+which is also the tune "Baa Baa Black Sheep" and the ABC Song share - the
+most common melody in the classic-nursery-rhyme repertoire. A running
+offset can be threaded across calls (see audio_agent.py) so the melody
+continues progressing through a whole poem instead of restarting at note
+one on every line.
 """
 from __future__ import annotations
 
 import librosa
 import numpy as np
 
-DEFAULT_CONTOUR_SEMITONES = [0, 2, 4, 5, 4, 2, 0, -2]
+# "Twinkle Twinkle Little Star" / "Baa Baa Black Sheep" / ABC Song melody,
+# semitone offsets from the tonic: C C G G A A G | F F E E D D C
+DEFAULT_CONTOUR_SEMITONES = [0, 0, 7, 7, 9, 9, 7, 5, 5, 4, 4, 2, 2, 0]
 CROSSFADE_S = 0.03
 MIN_SEGMENT_S = 0.05
 
@@ -39,12 +51,15 @@ def _crossfade_concat(segments: list[np.ndarray], sr: int) -> np.ndarray:
 
 
 def apply_singsong_contour(audio: np.ndarray, sr: int, n_words: int,
-                            contour: list[int] | None = None) -> np.ndarray:
-    """Pitch-shift a narration clip's word-segments along a repeating
-    melodic contour. Operates on the natural (unpadded) speech only -
-    call this before adding silence padding."""
+                            contour: list[int] | None = None, start_offset: int = 0) -> tuple[np.ndarray, int]:
+    """Pitch-shift a narration clip's word-segments along a melodic
+    contour, starting at start_offset within the contour (so a full poem
+    can progress continuously through the melody across lines instead of
+    restarting at note one each time - see audio_agent.py). Operates on
+    the natural (unpadded) speech only - call this before adding silence
+    padding. Returns (shifted_audio, next_offset)."""
     if len(audio) < sr * MIN_SEGMENT_S:
-        return audio
+        return audio, start_offset
 
     contour = contour or DEFAULT_CONTOUR_SEMITONES
     n_segments = max(1, min(n_words, 12))
@@ -55,10 +70,10 @@ def apply_singsong_contour(audio: np.ndarray, sr: int, n_words: int,
         if len(seg) < sr * MIN_SEGMENT_S:
             shifted.append(seg)
             continue
-        n_steps = contour[i % len(contour)]
+        n_steps = contour[(start_offset + i) % len(contour)]
         if n_steps == 0:
             shifted.append(seg)
             continue
         shifted.append(librosa.effects.pitch_shift(seg, sr=sr, n_steps=n_steps).astype(np.float32))
 
-    return _crossfade_concat(shifted, sr)
+    return _crossfade_concat(shifted, sr), start_offset + n_segments
