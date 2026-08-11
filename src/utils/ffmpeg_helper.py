@@ -74,6 +74,26 @@ def build_scene_clip(image_path: Path, audio_path: Path, duration_s: float,
     return out_path
 
 
+def mix_background_music(video_path: Path, music_path: Path, out_path: Path, music_volume: float = 0.18) -> Path:
+    """Mix a background music track under an existing video's narration
+    audio, matching the narration's duration exactly. Video stream is
+    copied (not re-encoded) - only the audio is touched."""
+    filter_complex = (
+        f"[1:a]volume={music_volume}[bg];"
+        f"[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0[a]"
+    )
+    args = [
+        ffmpeg_path(), "-y",
+        "-i", str(video_path), "-i", str(music_path),
+        "-filter_complex", filter_complex,
+        "-map", "0:v", "-map", "[a]",
+        "-c:v", "copy", "-c:a", "aac",
+        str(out_path),
+    ]
+    run(args)
+    return out_path
+
+
 def crossfade_concat(clips: list[Path], durations: list[float], fps: int,
                       out_path: Path, crossfade_s: float = 0.4) -> Path:
     """Chain-merge scene clips with an xfade/acrossfade transition between

@@ -15,10 +15,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
+import soundfile as sf
+
 from src.config import PipelineConfig, load_config
-from src.utils.ffmpeg_helper import build_scene_clip, crossfade_concat, probe
+from src.utils.ffmpeg_helper import build_scene_clip, crossfade_concat, mix_background_music, probe
 from src.utils.file_manager import ensure_dirs, read_json
 from src.utils.logger import get_logger, log_with_fields
+from src.utils.music_generator import generate_background_music
 
 logger = get_logger("animate_agent")
 
@@ -76,7 +79,20 @@ def assemble_video(images_manifest: list[dict], audio_manifest: list[dict],
             durations.append(duration)
             log_with_fields(logger, 20, "scene clip built", scene_index=idx, duration_s=duration)
 
-        crossfade_concat(clips, durations, fps, out_path)
+        merged_path = tmp_dir / "merged_no_music.mp4"
+        crossfade_concat(clips, durations, fps, merged_path)
+
+        music_config = config.pipeline.get("music", {})
+        if music_config.get("enabled", True):
+            total_duration = probe(merged_path)["format"]["duration"]
+            sample_rate = 48000
+            music = generate_background_music(float(total_duration), sample_rate=sample_rate)
+            music_path = tmp_dir / "background_music.wav"
+            sf.write(music_path, music, sample_rate, subtype="PCM_16")
+            mix_background_music(merged_path, music_path, out_path, music_config.get("volume", 0.18))
+            log_with_fields(logger, 20, "background music mixed", duration_s=round(float(total_duration), 2))
+        else:
+            merged_path.replace(out_path)
 
     _validate_output(out_path, width, height, fps)
     log_with_fields(logger, 20, "assembly validated", out_path=str(out_path))
