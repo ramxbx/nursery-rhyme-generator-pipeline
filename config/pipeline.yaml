@@ -8,6 +8,7 @@ paths:
 
 script:
   creative_rewrite: true
+  elaborate_scene_description: true
 
 music:
   enabled: true

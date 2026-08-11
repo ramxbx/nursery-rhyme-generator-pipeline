@@ -42,6 +42,19 @@ def build_dialogue_prompt(line_text: str, line_index: int, line_total: int, cast
     )
 
 
+def build_elaborate_scene_prompt(all_lines: list[str], line_index: int, speaker: str) -> str:
+    template = load_template("elaborate_scene_template.txt")
+    full_poem = "\n".join(all_lines)
+    return render(
+        template,
+        full_poem=full_poem,
+        speaker=speaker,
+        line_index=str(line_index),
+        line_total=str(len(all_lines)),
+        target_line=all_lines[line_index - 1],
+    )
+
+
 def build_rewrite_prompt(target_word: str) -> str:
     template = load_template("rewrite_prompt_template.txt")
     return render(template, target_word=target_word)

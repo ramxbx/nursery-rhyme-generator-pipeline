@@ -22,13 +22,24 @@ from src.config import PipelineConfig, load_config
 from src.utils.file_manager import ensure_dirs, safe_write_json
 from src.utils.llm_client import LLMError, call_with_fallback
 from src.utils.logger import get_logger, log_with_fields
-from src.utils.prompt_builder import build_dialogue_prompt, build_rewrite_prompt
+from src.utils.prompt_builder import build_dialogue_prompt, build_elaborate_scene_prompt, build_rewrite_prompt
 
 logger = get_logger("script_agent")
 
 REQUIRED_ANNOTATION_KEYS = {"speaker", "stage_direction"}
 LAST_WORD_RE = re.compile(r"^(.*\b)([A-Za-z']+)([.,!?;:]*)\s*$")
 REWRITE_MAX_RETRIES = 2
+
+# Bigger CPU-only model for elaborate, whole-poem-aware scene descriptions
+# (see GPT-20 follow-up: LFM2/Gemma-3-1B's per-line annotation loses the
+# poem's throughline after line 1 - Qwen2.5-7B was benchmarked against
+# gemma-4-e2b and bonsai-27b for this specific task; picked for having no
+# hidden "thinking" token tax and no whole-poem drift when given full
+# context. Not swapped in for the fast bounded annotation task - that
+# already works fine on the small models and doesn't need this latency.
+ELABORATE_MODEL = "qwen2.5-7b-bench"
+ELABORATE_MAX_TOKENS = 400
+ELABORATE_TIMEOUT_S = 220
 
 SECONDS_PER_SYLLABLE = 0.35
 MIN_LINE_DURATION_S = 1.5
@@ -146,6 +157,31 @@ def annotate_line(line_text: str, line_index: int, line_total: int, cast_so_far:
                 "mood": "gentle and playful"}
 
 
+def draft_elaborate_scene_description(all_lines: list[str], line_index: int, speaker: str,
+                                       base_llm_config: dict, fallback_description: str) -> str:
+    """Rich, whole-poem-aware scene description via a bigger CPU-only model.
+    Falls back to the short per-line description (already computed by
+    annotate_line) on any failure - never blocks the pipeline."""
+    system_prompt = build_elaborate_scene_prompt(all_lines, line_index, speaker)
+    elaborate_config = {
+        "endpoint": base_llm_config["endpoint"],
+        "primary": ELABORATE_MODEL,
+        "fallback": ELABORATE_MODEL,
+        "request_timeout_s": ELABORATE_TIMEOUT_S,
+        "max_retries": 1,
+        "excluded": base_llm_config.get("excluded", []),
+    }
+    try:
+        result = call_with_fallback(system_prompt=system_prompt, user_prompt="Write the scene description now.",
+                                     llm_config=elaborate_config, parse_json=False, max_tokens=ELABORATE_MAX_TOKENS)
+        text = result.text.strip()
+        return text if text else fallback_description
+    except LLMError as e:
+        log_with_fields(logger, 30, "elaborate scene description failed, keeping short fallback",
+                         line_index=line_index, error=str(e))
+        return fallback_description
+
+
 def extract_cast(cast_so_far: list[str], speaker: str) -> list[str]:
     if speaker and speaker.lower() not in {c.lower() for c in cast_so_far}:
         return cast_so_far + [speaker]
@@ -162,16 +198,25 @@ def generate_script(rhyme_text: str, config: PipelineConfig | None = None) -> di
     if creative_rewrite:
         lines = [rewrite_line_creatively(line, config.llm) for line in lines]
 
+    elaborate_enabled = config.pipeline.get("script", {}).get("elaborate_scene_description", True)
+
     scenes = []
     cast: list[str] = []
     for i, line in enumerate(lines, start=1):
         annotation = annotate_line(line, i, len(lines), cast, config.llm)
         cast = extract_cast(cast, annotation["speaker"])
+        scene_description = annotation.get("scene_description") or "A soft, colorful children's picture-book setting."
+
+        if elaborate_enabled:
+            scene_description = draft_elaborate_scene_description(
+                lines, i, annotation["speaker"], config.llm, scene_description)
+            log_with_fields(logger, 20, "elaborate scene description drafted", line_index=i)
+
         scenes.append({
             "line": line,
             "speaker": annotation["speaker"],
             "stage_direction": annotation["stage_direction"],
-            "scene_description": annotation.get("scene_description") or "A soft, colorful children's picture-book setting.",
+            "scene_description": scene_description,
             "mood": annotation.get("mood") or "gentle and playful",
             "duration_s": estimate_duration(line),
         })
