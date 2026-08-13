@@ -18,7 +18,7 @@ music:
 
 subtitles:
   enabled: true
-  font_size: 96
+  font_size: 120
 
 models:
   llm:

@@ -4,36 +4,36 @@
   ],
   "scenes": [
     {
-      "line": "Ba-a-ba, merry black sheep,",
+      "line": "Once upon a time there is a happy cow,",
       "speaker": "Narrator",
-      "stage_direction": "Enter a whimsical farm scene with a black sheep",
-      "scene_description": "merry black sheep, thick fluffy wool, standing in green meadow, sunny morning, happy expression",
-      "mood": "happy and enchanting",
-      "duration_s": 3.35
+      "stage_direction": "Setting introduces a new scene with a happy setting",
+      "scene_description": "creamy white cow, standing in a green grassy field, happy expression, bright sunlight",
+      "mood": "calm and dreamy",
+      "duration_s": 4.55
     },
     {
-      "line": "Do you have any fluffy wool?",
+      "line": "the cow jumped from top of a hill,",
       "speaker": "Narrator",
-      "stage_direction": "Asks question",
-      "scene_description": "merry black sheep, thick fluffy wool, looking towards viewer, gentle expression, ears perked up, asking a question",
-      "mood": "Playful",
-      "duration_s": 3.3
-    },
-    {
-      "line": "Yes sir, yes sir,",
-      "speaker": "Narrator",
-      "stage_direction": "Singing response",
-      "scene_description": "merry black sheep, thick fluffy wool, sitting calmly in green meadow, nodding head, posture of agreement",
-      "mood": "calm and playful",
-      "duration_s": 2.3
-    },
-    {
-      "line": "Three bags brimming, full.",
-      "speaker": "Narrator",
-      "stage_direction": "Describing action",
-      "scene_description": "merry black sheep, thick fluffy wool, standing in green meadow, three full sacks brimming with wool on the grass",
+      "stage_direction": "Descending hillside",
+      "scene_description": "creamy white cow, jumping from top of a hill, dynamic pose, mid-air action",
       "mood": "playful",
-      "duration_s": 2.45
+      "duration_s": 3.85
+    },
+    {
+      "line": "The hill sparkled with blooms and the scent of pine,",
+      "speaker": "Narrator",
+      "stage_direction": "Setting transition to a serene forest clearing",
+      "scene_description": "creamy white cow, overlooking a hill sparkling with blooms and scent of pine, scenic view",
+      "mood": "calm and dreamy",
+      "duration_s": 4.55
+    },
+    {
+      "line": "The cow munched on grass and produced plenty of milk.",
+      "speaker": "Narrator",
+      "stage_direction": "Cow performing action",
+      "scene_description": "creamy white cow, munched on grass, producing plenty of milk, contented expression",
+      "mood": "calm and peaceful",
+      "duration_s": 5.4
     }
   ]
 }
