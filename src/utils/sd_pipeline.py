@@ -1,8 +1,15 @@
-"""SD1.5 + LCM-LoRA pipeline construction, tuned for a 4GB GTX 1050.
+"""SD1.5 pipeline construction, tuned for a 4GB GTX 1050.
 
 Kept separate from visual_agent so the heavy load happens once per process
 and the memory-safety settings (fp16, SDPA attention, VAE slicing/tiling,
 model CPU offload) live in one place, matching config/sd_config.yml.
+
+Runs the standard scheduler at 25-50 steps rather than LCM-LoRA's few-step
+distilled trajectory - LCM was tested extensively (4/8/14+ steps, several
+LoRA stacking combinations) and never clearly beat the standard scheduler
+on quality, while its narrow few-step convergence window turned out to be
+a poor fit for later experiments like IP-Adapter (mismatched, ~3.5x slower
+per step and less stable than IP-Adapter + standard scheduler should be).
 """
 from __future__ import annotations
 
@@ -15,7 +22,7 @@ from pathlib import Path
 os.environ.setdefault("HF_HOME", str(Path(__file__).resolve().parent.parent.parent / "models" / "hf_cache"))
 
 import torch
-from diffusers import DiffusionPipeline, LCMScheduler
+from diffusers import DiffusionPipeline, DPMSolverMultistepScheduler
 
 from src.utils.logger import get_logger, log_with_fields
 
@@ -24,14 +31,19 @@ logger = get_logger("sd_pipeline")
 
 def build_pipeline(sd_config: dict) -> DiffusionPipeline:
     device_available = torch.cuda.is_available()
-    pipe = DiffusionPipeline.from_pretrained(
-        sd_config["base_model"],
-        torch_dtype=torch.float16,
-        variant=sd_config.get("variant", "fp16"),
-        safety_checker=None,
-    )
-    pipe.load_lora_weights(sd_config["lora"])
-    pipe.scheduler = LCMScheduler.from_config(pipe.scheduler.config)
+    # `variant` is optional: community fine-tunes often publish fp32 weights
+    # only, and passing variant="fp16" against those fails outright. Without
+    # it, torch_dtype still casts to fp16 at load, which is what actually
+    # matters for fitting in 4GB.
+    load_kwargs = {"torch_dtype": torch.float16, "safety_checker": None}
+    if sd_config.get("variant"):
+        load_kwargs["variant"] = sd_config["variant"]
+    pipe = DiffusionPipeline.from_pretrained(sd_config["base_model"], **load_kwargs)
+    # DPM++ 2M Karras - the community-standard SD1.5 sampler, converges better
+    # in the 20-30 step range this pipeline runs at than the PNDM default the
+    # checkpoints ship with (GPT-33).
+    pipe.scheduler = DPMSolverMultistepScheduler.from_config(
+        pipe.scheduler.config, algorithm_type="dpmsolver++", use_karras_sigmas=True)
 
     if sd_config.get("enable_vae_slicing"):
         pipe.enable_vae_slicing()
@@ -57,3 +69,43 @@ def to_cpu_fallback(pipe: DiffusionPipeline) -> DiffusionPipeline:
     pipe = pipe.to("cpu")
     log_with_fields(logger, 40, "switched pipeline to CPU fallback after OOM")
     return pipe
+
+
+CLIP_VERIFIER_MODEL = "openai/clip-vit-base-patch32"
+
+
+def build_clip_verifier():
+    """Small standalone CLIP model (image + text towers), used only to check
+    that a generated image actually shows its intended subject (GPT-34).
+
+    This is the only check in the pipeline that looks at image *content* -
+    pixel-statistics checks can spot a blank or tiled frame but have no idea
+    whether the picture is of a sheep or a toddler, which is a failure this
+    project hits regularly. Deliberately the small ViT-B/32 (~600MB): a
+    coarse similarity score is all that's needed, and it stays cheap enough
+    to run on every candidate image."""
+    from transformers import CLIPModel, CLIPProcessor
+
+    model = CLIPModel.from_pretrained(CLIP_VERIFIER_MODEL, torch_dtype=torch.float16)
+    processor = CLIPProcessor.from_pretrained(CLIP_VERIFIER_MODEL)
+    model.eval()
+    if torch.cuda.is_available():
+        model = model.to("cuda")
+    return model, processor
+
+
+def clip_subject_similarity(verifier, image, text: str) -> float:
+    """Cosine similarity between an image and a text description in CLIP's
+    joint embedding space - higher means the image more plausibly shows what
+    the text describes. Calibrated against real renders from this project:
+    images that did contain the described subject scored 0.27-0.31, images of
+    an entirely wrong subject scored 0.23-0.25."""
+    model, processor = verifier
+    device = next(model.parameters()).device
+    inputs = processor(text=[text], images=[image], return_tensors="pt", padding=True)
+    inputs = {k: v.to(device) for k, v in inputs.items()}
+    with torch.no_grad():
+        out = model(**inputs)
+    img_emb = out.image_embeds / out.image_embeds.norm(dim=-1, keepdim=True)
+    txt_emb = out.text_embeds / out.text_embeds.norm(dim=-1, keepdim=True)
+    return float((img_emb @ txt_emb.T).item())

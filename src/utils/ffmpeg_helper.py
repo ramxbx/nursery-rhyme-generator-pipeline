@@ -53,10 +53,18 @@ def probe(path: Path) -> dict:
 def build_scene_clip(image_path: Path, audio_path: Path, duration_s: float,
                       fps: int, width: int, height: int, out_path: Path) -> Path:
     """Ken Burns pan/zoom on a static image, upscaled to (width, height),
-    muxed with the scene's audio, trimmed to duration_s."""
+    muxed with the scene's audio, trimmed to duration_s.
+
+    Scales to COVER the frame and centre-crops the overflow, rather than
+    stretching to fit. Scene images are generated square (512x512, SD1.5's
+    native training resolution - see GPT-32), so a plain stretch to 16:9
+    would visibly distort the subject. Prompts ask for a centred subject
+    (STYLE_ANCHOR in visual_agent.py), which is what makes a centre crop
+    safe here."""
     n_frames = max(1, int(round(duration_s * fps)))
     zoompan = (
-        f"scale={width}:{height}:flags=lanczos,"
+        f"scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
+        f"crop={width}:{height},"
         f"zoompan=z='min(zoom+0.0008,1.15)':d={n_frames}:s={width}x{height}:fps={fps}"
     )
     args = [
@@ -144,6 +152,24 @@ def crossfade_concat(clips: list[Path], durations: list[float], fps: int,
         "-map", f"[{prev_v}]", "-map", f"[{prev_a}]",
         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps),
         "-c:a", "aac",
+        str(out_path),
+    ]
+    run(args)
+    return out_path
+
+
+def rubberband_pitch_shift(in_path: Path, out_path: Path, pitch_ratio: float) -> Path:
+    """Pitch-shift a WAV file by pitch_ratio (2**(semitones/12)) using
+    ffmpeg's rubberband filter (Rubber Band Library, compiled into this
+    project's ffmpeg build via --enable-librubberband). Formant-preserving,
+    designed for vocals/speech - used in place of librosa's phase-vocoder
+    pitch_shift (singing.py, GPT-30), which introduced audible metallic
+    artifacts on Piper TTS output, especially at the 7-9 semitone shifts
+    the singing contour uses."""
+    args = [
+        ffmpeg_path(), "-y",
+        "-i", str(in_path),
+        "-af", f"rubberband=pitch={pitch_ratio}",
         str(out_path),
     ]
     run(args)
