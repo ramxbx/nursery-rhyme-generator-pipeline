@@ -158,18 +158,45 @@ def crossfade_concat(clips: list[Path], durations: list[float], fps: int,
     return out_path
 
 
-def rubberband_pitch_shift(in_path: Path, out_path: Path, pitch_ratio: float) -> Path:
-    """Pitch-shift a WAV file by pitch_ratio (2**(semitones/12)) using
-    ffmpeg's rubberband filter (Rubber Band Library, compiled into this
-    project's ffmpeg build via --enable-librubberband). Formant-preserving,
-    designed for vocals/speech - used in place of librosa's phase-vocoder
+# Rubber Band's defaults are tuned for speed, not vocal quality:
+#   formant=preserved - the default (shifted) moves the vocal formants along
+#     with the pitch, which is precisely the "chipmunk" effect. At the 7-9
+#     semitone shifts this project's melody uses, that alone accounts for much
+#     of the artificial sound. Preserving formants keeps the voice sounding
+#     like the same singer hitting a higher note.
+#   pitchq=quality - default is `speed`. The audio stage costs ~20s of a ~16min
+#     pipeline run, so trading time for quality here is essentially free.
+#
+# Settings deliberately NOT used, having been measured rather than assumed:
+# `smoothing=on` sounds like it should suit sustained singing, but on Piper's
+# output it was catastrophic - it produced the audible mid-line clicks and
+# dropouts reported as "broken sounds", degrading a discontinuity metric
+# (largest sample jump / signal RMS) from 1.27 to 16.98. `window=long` was
+# neutral-to-slightly-worse and buys nothing. The combination below measures
+# at 1.16, i.e. marginally *cleaner* than the untouched Piper speech it
+# started from (1.28).
+RUBBERBAND_VOCAL_OPTS = "formant=preserved:pitchq=quality"
+
+
+def rubberband_pitch_shift(in_path: Path, out_path: Path, pitch_ratio: float,
+                            tempo_ratio: float = 1.0) -> Path:
+    """Pitch-shift and/or time-stretch a WAV file using ffmpeg's rubberband
+    filter (Rubber Band Library, compiled into this project's ffmpeg build via
+    --enable-librubberband). Used in place of librosa's phase-vocoder
     pitch_shift (singing.py, GPT-30), which introduced audible metallic
-    artifacts on Piper TTS output, especially at the 7-9 semitone shifts
-    the singing contour uses."""
+    artifacts on Piper TTS output.
+
+    pitch_ratio is 2**(semitones/12). tempo_ratio > 1 makes the audio shorter,
+    < 1 makes it longer - so to stretch a syllable to N times its length, pass
+    tempo_ratio = 1/N. Both happen in a single pass when both are given, which
+    is cheaper and cleaner than chaining two separate passes."""
+    opts = f"pitch={pitch_ratio}"
+    if tempo_ratio != 1.0:
+        opts += f":tempo={tempo_ratio}"
     args = [
         ffmpeg_path(), "-y",
         "-i", str(in_path),
-        "-af", f"rubberband=pitch={pitch_ratio}",
+        "-af", f"rubberband={opts}:{RUBBERBAND_VOCAL_OPTS}",
         str(out_path),
     ]
     run(args)
