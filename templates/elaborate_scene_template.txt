@@ -1,16 +1,37 @@
-You are a creative director for a children's animated video. You will see the FULL rhyme/poem for context, but you are writing the description for only ONE specific line of it. Stay consistent with the poem's actual subject and cast throughout - do not invent a different scene, character, or setting than what the poem is actually about.
+You are writing image-generation prompts for a children's animated video. Below are the full set of lines, already split one per line, each with its speaker noted. Write ONE image prompt PER LINE so that together they read like consecutive frames of the same story - not independent, disconnected snapshots.
 
-Write a long, precise, vivid scene description (120-180 words) that a text-to-image artist AND a voice director could both use. Cover, in prose (not a list): the setting and environment, lighting and color palette, the main character's precise appearance and pose/action, background details, and the emotional tone of the moment (which should also guide how the line is narrated - pace, warmth, energy). Be concrete and specific, not generic. Output ONLY the description paragraph, no headers, no preamble.
+Before writing anything, first decide privately (do not write this part out) on exactly ONE visual subject for the WHOLE story: the character or object the story is actually about (the animal/object it names - NOT the narrator, who is a storytelling voice, never something to draw). Fix that subject's species/type, its exact color and markings, and the overall setting/world ONCE, then reuse those same facts, unchanged, in every single prompt below.
+
+FORMAT - this is the most important rule. Each prompt must be a COMMA-SEPARATED LIST OF SHORT VISUAL DESCRIPTORS, 20-35 words total. Not sentences. Not prose. No verbs-in-sentences, no dialogue, no quotation marks, no character names, no narration.
+
+Correct format:
+white sheep, thick fluffy wool, standing in green meadow, yellow flowers, blue sky, white clouds, sunny morning
+
+Wrong format (never do this - narrative prose with dialogue):
+Baam the sheep stands proudly in the meadow, and says "Yes sir!" as he lifts three bags.
+
+Also wrong (never do this - pose with no species and no setting, which produces a completely unrelated subject):
+looking directly at viewer, gentle expression, posture of agreement
 
 Hard rules - check your own output against these before answering:
-* Pick exactly ONE visual subject for this scene (the character actually named or implied by the poem, e.g. the animal/object the poem is about - NOT the narrator, who is a storytelling voice, not a depicted character). Describe only that one subject's appearance and action in detail. Do not also describe a second character's face or expression in the same scene.
-* Never contradict a color/material you already stated for that subject (e.g. do not call an animal "black" and then describe its wool/fur/coat as "white" in the same description - if the poem specifies a color, use that color consistently for every mention).
-* Use anatomically correct terms for the subject's species (e.g. an animal with hooves has hooves, not paws or hands; check what kind of creature you're describing before choosing body-part words).
-* Output PLAIN PROSE only: ordinary paragraph sentences, no line breaks, no rhyming, no verse. You are writing a visual description for an artist, not another poem - do not let the rhyme scheme of the source poem leak into your own writing style.
-* Write entirely NEW sentences for this line. Do not reuse or lightly edit sentences from the previous scene's description below - only carry forward the underlying facts (character appearance, setting), never the wording.
+* Start every prompt with the subject itself (species/type + color + one key trait), because an image generator weights the first few words most heavily.
+* EVERY prompt must restate BOTH the subject's species and the setting, even when the line itself only describes a reaction or a piece of dialogue. An image generator has no memory of the previous prompt - a prompt like "looking at viewer, gentle expression" with no species and no location produces a completely unrelated subject in an empty room. Always include the species word (e.g. "sheep") and a few setting words (e.g. "green grassy field, blue sky").
+* Never contradict a color/material you already established for the subject anywhere else in your answer (e.g. do not call it "black" in scene 1 and "white" in scene 3 - if the story specifies a color, use that exact color in every prompt that mentions it).
+* Keep the same number and identity of characters throughout - do not introduce a second character that was never established, and do not turn one subject into several unless the story itself says so.
+* Never name the narrator or draw them as a person - they are an offscreen voice only.
+* Use anatomically correct terms for the subject's species (e.g. an animal with hooves has hooves, not hands).
+* Each prompt's action/pose/framing should reflect what THAT line specifically describes, while the subject's appearance and setting stay the same as everywhere else. Describe the action as a visible pose or arrangement of objects ("head tilted down", "three full sacks on the grass"), never as narrated events.
+* No line breaks inside a prompt - each is one single line of comma-separated descriptors.
 
-Full poem, in order:
+All lines, in order:
 $full_poem
-$previous_scene_block
-Speaker for this line: $speaker
-Write the scene description for line $line_index of $line_total: "$target_line"
+
+Lines and speakers:
+$line_roles
+
+Output EXACTLY in this format and nothing else - one block per line, in order, no extra commentary before or after:
+SCENE 1:
+<comma-separated descriptors for line 1>
+SCENE 2:
+<comma-separated descriptors for line 2>
+(continue through SCENE $line_total)

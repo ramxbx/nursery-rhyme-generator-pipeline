@@ -4,35 +4,35 @@
   ],
   "scenes": [
     {
-      "line": "Baa, baa, the cheeky black sheep,",
+      "line": "Ba-a-ba, merry black sheep,",
       "speaker": "Narrator",
-      "stage_direction": "Enter a farmyard scene",
-      "scene_description": "A black sheep with a playful expression",
-      "mood": "playful and upbeat",
-      "duration_s": 3.55
+      "stage_direction": "Enter a whimsical farm scene with a black sheep",
+      "scene_description": "merry black sheep, thick fluffy wool, standing in green meadow, sunny morning, happy expression",
+      "mood": "happy and enchanting",
+      "duration_s": 3.35
     },
     {
       "line": "Do you have any fluffy wool?",
       "speaker": "Narrator",
-      "stage_direction": "Asking question",
-      "scene_description": "Child asking for soft, cuddly material",
-      "mood": "playful and curious",
+      "stage_direction": "Asks question",
+      "scene_description": "merry black sheep, thick fluffy wool, looking towards viewer, gentle expression, ears perked up, asking a question",
+      "mood": "Playful",
       "duration_s": 3.3
     },
     {
       "line": "Yes sir, yes sir,",
       "speaker": "Narrator",
-      "stage_direction": "Singing in response",
-      "scene_description": "Child is happily clapping and smiling",
-      "mood": "joyful and cheerful",
+      "stage_direction": "Singing response",
+      "scene_description": "merry black sheep, thick fluffy wool, sitting calmly in green meadow, nodding head, posture of agreement",
+      "mood": "calm and playful",
       "duration_s": 2.3
     },
     {
       "line": "Three bags brimming, full.",
       "speaker": "Narrator",
       "stage_direction": "Describing action",
-      "scene_description": "A store or warehouse setting",
-      "mood": "Cheerful",
+      "scene_description": "merry black sheep, thick fluffy wool, standing in green meadow, three full sacks brimming with wool on the grass",
+      "mood": "playful",
       "duration_s": 2.45
     }
   ]
