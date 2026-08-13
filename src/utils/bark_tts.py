@@ -1,0 +1,161 @@
+"""Bark singing-voice synthesis backend.
+
+Unlike Piper (which speaks, and is then pitch-shifted into a tune by
+singing.py), Bark generates sung vocals directly from text when the lyrics are
+wrapped in music-note markers. That makes it the only local option in this
+project that actually sings rather than post-processing speech.
+
+Three properties of Bark shape everything below and are worth knowing before
+changing any of it:
+
+* It is slow. Roughly 17x realtime on this CPU - ~4 minutes of compute for a
+  ~15 second line. The audio stage goes from seconds to many minutes.
+* It picks its own melody. There is no way to specify a tune, so the output
+  will not be "Baa Baa Black Sheep" - it is a plausible children's-song melody
+  Bark invented. This is a deliberate, user-accepted trade for real singing.
+* It is non-deterministic and unreliable. Sampling is required, so the same
+  input gives different output each run, including sometimes not singing at
+  all, rambling past the lyrics, or emitting near-silence. Callers must be
+  prepared to fall back.
+
+Bark also ignores requested durations entirely, so scene timing has to follow
+the generated audio rather than the script's estimate - see audio_agent.
+"""
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+os.environ.setdefault("HF_HOME", str(Path(__file__).resolve().parent.parent.parent / "models" / "hf_cache"))
+
+import numpy as np
+
+from src.utils.logger import get_logger, log_with_fields
+
+logger = get_logger("bark_tts")
+
+BARK_MODEL = "suno/bark-small"
+# One fixed speaker preset across every line, so the "singer" stays the same
+# voice through the whole video rather than changing character line to line.
+DEFAULT_VOICE_PRESET = "v2/en_speaker_9"
+# Bark emits at 24kHz regardless of what the rest of the pipeline uses.
+BARK_SAMPLE_RATE = 24000
+# Below this peak amplitude the take is treated as a failed generation (Bark
+# occasionally returns near-silence) rather than usable audio.
+MIN_PEAK_AMPLITUDE = 0.02
+# Bark commonly pads a line with several seconds of trailing near-silence or
+# breath noise; anything quieter than this fraction of the peak is trimmed.
+TRIM_THRESHOLD = 0.02
+
+
+def build_bark() -> tuple:
+    """Load Bark once per process - the model load is far too slow to repeat
+    per line."""
+    import torch
+    from transformers import AutoProcessor, BarkModel
+
+    processor = AutoProcessor.from_pretrained(BARK_MODEL)
+    model = BarkModel.from_pretrained(BARK_MODEL, torch_dtype=torch.float32)
+    model.eval()
+    log_with_fields(logger, 20, "bark loaded", model=BARK_MODEL)
+    return model, processor
+
+
+def _trim_silence(audio: np.ndarray) -> np.ndarray:
+    """Drop leading/trailing near-silence. Bark pads generously, and that
+    padding would otherwise stretch the scene it belongs to."""
+    peak = float(np.abs(audio).max())
+    if peak <= 0:
+        return audio
+    loud = np.where(np.abs(audio) > peak * TRIM_THRESHOLD)[0]
+    if len(loud) == 0:
+        return audio
+    return audio[loud[0]:loud[-1] + 1]
+
+
+# Every Bark generation is independent, so each line lands in whatever key it
+# happens to pick - measured at 3.2 semitones of spread across four lines of one
+# poem (B, A#, A#, G), which reads as four different singers rather than one
+# song. Each line is therefore transposed onto a common tonic. ~220Hz (A3) sits
+# in a comfortable register for a children's song and close to where this
+# speaker preset already sings, keeping the corrections small.
+TARGET_TONIC_HZ = 220.0
+# Cap the correction: past a few semitones Rubber Band starts to colour the
+# voice, and a wildly off-key take is better left slightly off than mangled.
+MAX_TRANSPOSE_SEMITONES = 5.0
+# Below this, leave the line alone - the shift would be inaudible and only
+# costs quality.
+MIN_TRANSPOSE_SEMITONES = 0.3
+
+
+def estimate_f0(audio: np.ndarray, sr: int) -> float:
+    """Median fundamental frequency of the voiced parts of a clip, via
+    autocorrelation. Used as the line's perceived key centre."""
+    frame, hop = 2048, 512
+    f0s = []
+    for i in range(0, max(0, len(audio) - frame), hop):
+        seg = audio[i:i + frame].astype(np.float64)
+        seg -= seg.mean()
+        if np.abs(seg).max() < 0.02:  # unvoiced/silent frame
+            continue
+        corr = np.correlate(seg, seg, mode="full")[len(seg) - 1:]
+        rising = np.where(np.diff(corr) > 0)[0]
+        if len(rising) == 0:
+            continue
+        peak = int(np.argmax(corr[rising[0]:]) + rising[0])
+        if peak == 0:
+            continue
+        f0 = sr / peak
+        if 70 < f0 < 500:  # plausible singing range
+            f0s.append(f0)
+    return float(np.median(f0s)) if f0s else 0.0
+
+
+def normalize_pitch(audio: np.ndarray, sr: int, target_hz: float = TARGET_TONIC_HZ) -> np.ndarray:
+    """Transpose a line so its key centre sits at target_hz, so independently
+    generated lines share a key instead of wandering between them."""
+    import tempfile
+
+    import soundfile as sf
+
+    from src.utils.ffmpeg_helper import rubberband_pitch_shift
+
+    f0 = estimate_f0(audio, sr)
+    if f0 <= 0:
+        return audio
+    semitones = 12 * np.log2(target_hz / f0)
+    if abs(semitones) < MIN_TRANSPOSE_SEMITONES:
+        return audio
+    semitones = float(np.clip(semitones, -MAX_TRANSPOSE_SEMITONES, MAX_TRANSPOSE_SEMITONES))
+
+    with tempfile.TemporaryDirectory() as td:
+        in_path, out_path = Path(td) / "in.wav", Path(td) / "out.wav"
+        sf.write(in_path, audio, sr, subtype="FLOAT")
+        rubberband_pitch_shift(in_path, out_path, pitch_ratio=2 ** (semitones / 12))
+        shifted, _ = sf.read(out_path, dtype="float32")
+    log_with_fields(logger, 20, "bark line transposed to common key",
+                     from_hz=round(f0, 1), semitones=round(semitones, 2))
+    return shifted.astype(np.float32)
+
+
+def sing_line(bark, text: str, voice_preset: str = DEFAULT_VOICE_PRESET) -> np.ndarray | None:
+    """Generate sung audio for one line, at BARK_SAMPLE_RATE.
+
+    Returns None if the take is unusable, leaving the caller to fall back to
+    the speech backend rather than shipping silence."""
+    import torch
+
+    model, processor = bark
+    # The music-note markers are what prompt Bark to sing rather than speak.
+    prompt = f"♪ {text} ♪"
+    inputs = processor(prompt, voice_preset=voice_preset)
+    with torch.no_grad():
+        # Sampling is required - Bark produces nothing usable greedily.
+        generated = model.generate(**inputs, do_sample=True)
+
+    audio = generated.cpu().numpy().squeeze().astype(np.float32)
+    if audio.ndim != 1 or len(audio) == 0:
+        return None
+    if float(np.abs(audio).max()) < MIN_PEAK_AMPLITUDE:
+        return None
+    return normalize_pitch(_trim_silence(audio), BARK_SAMPLE_RATE)

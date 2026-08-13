@@ -45,6 +45,25 @@ def resample_linear(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarr
     return np.interp(target_t, orig_t, audio).astype(np.float32)
 
 
+def synthesize_line_bark(bark, text: str, tts_config: dict) -> np.ndarray | None:
+    """Sung audio for one line via Bark, resampled to the pipeline rate.
+
+    Deliberately does NOT pad or trim to the script's duration estimate: Bark
+    chooses its own phrasing and tempo, so forcing it to a predicted length
+    would either cut a line off mid-word or leave dead air. Scene and subtitle
+    timing follow the real audio length instead (see generate_audio).
+
+    Returns None when Bark returns an unusable take, so the caller can fall
+    back to Piper rather than shipping a silent scene."""
+    from src.utils.bark_tts import BARK_SAMPLE_RATE, DEFAULT_VOICE_PRESET, sing_line
+
+    preset = tts_config.get("bark_voice_preset") or DEFAULT_VOICE_PRESET
+    audio = sing_line(bark, text, preset)
+    if audio is None:
+        return None
+    return resample_linear(audio, BARK_SAMPLE_RATE, tts_config.get("sample_rate", 48000))
+
+
 def synthesize_line(voice: PiperVoice, text: str, target_duration_s: float, tts_config: dict,
                      melody_offset: int = 0) -> tuple[np.ndarray, int]:
     syn_config = SynthesisConfig(
@@ -76,22 +95,55 @@ def synthesize_line(voice: PiperVoice, text: str, target_duration_s: float, tts_
 
 
 def generate_audio(script: dict, config: PipelineConfig) -> list[dict]:
+    """Synthesize narration for every scene.
+
+    Two backends, selected by `backend` in tts_config.yml:
+
+    piper - fast (seconds for a whole poem), speaks the line, and singing.py
+        then pitch-shifts and re-times it into the nursery-rhyme melody. Keeps
+        the recognisable tune; still sounds like shaped speech.
+    bark - genuinely sings, but ~17x realtime (many minutes per run), invents
+        its own melody rather than the poem's, and is non-deterministic. Piper
+        is used as a per-line fallback whenever a Bark take comes back
+        unusable, so one bad generation degrades a single line rather than
+        failing the stage.
+
+    Downstream timing follows `actual_duration_s` recorded here, not the
+    script's estimate, which is what lets Bark's self-chosen phrasing stay in
+    sync with scenes and subtitles."""
     dirs = ensure_dirs(config.paths)
     voice = load_voice(config.tts)
     sample_rate = config.tts.get("sample_rate", 48000)
 
+    use_bark = config.tts.get("backend", "piper").lower() == "bark"
+    bark = None
+    if use_bark:
+        from src.utils.bark_tts import build_bark
+        bark = build_bark()
+
     manifest = []
     melody_offset = 0
     for i, scene in enumerate(script["scenes"], start=1):
-        audio, melody_offset = synthesize_line(voice, scene["line"], scene["duration_s"], config.tts, melody_offset)
+        audio, source = None, "piper"
+        if use_bark:
+            audio = synthesize_line_bark(bark, scene["line"], config.tts)
+            if audio is None:
+                log_with_fields(logger, 30, "bark take unusable, falling back to piper", scene_index=i)
+            else:
+                source = "bark"
+        if audio is None:
+            audio, melody_offset = synthesize_line(
+                voice, scene["line"], scene["duration_s"], config.tts, melody_offset)
+
         out_path = scene_path(dirs["audio_dir"], i, ".wav")
         sf.write(out_path, audio, sample_rate, subtype="PCM_16")
 
         actual_duration = round(len(audio) / sample_rate, 2)
         manifest.append({"scene_index": i, "line": scene["line"], "audio_path": str(out_path),
-                          "target_duration_s": scene["duration_s"], "actual_duration_s": actual_duration})
+                          "target_duration_s": scene["duration_s"], "actual_duration_s": actual_duration,
+                          "source": source})
         log_with_fields(logger, 20, "scene audio generated", scene_index=i, audio_path=str(out_path),
-                         actual_duration_s=actual_duration)
+                         actual_duration_s=actual_duration, source=source)
 
     return manifest
 

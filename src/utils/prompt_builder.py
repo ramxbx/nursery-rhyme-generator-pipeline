@@ -42,41 +42,35 @@ def build_dialogue_prompt(line_text: str, line_index: int, line_total: int, cast
     )
 
 
-def build_elaborate_scene_prompt(all_lines: list[str], line_index: int, speaker: str) -> str:
+def build_elaborate_story_prompt(all_lines: list[str], speakers: list[str]) -> str:
+    """Whole-poem-aware scene description prompt: asks for every scene in a
+    single call instead of one line at a time. A small local model chaining
+    off just a short per-scene anchor still let appearance/character facts
+    drift scene-to-scene (a color contradiction re-appeared even with
+    chaining) - having the model hold the whole story in one generation
+    pass, rather than handing off a lossy summary between separate calls,
+    is what actually keeps facts consistent (GPT-27 follow-up)."""
     template = load_template("elaborate_scene_template.txt")
-    full_poem = "\n".join(all_lines)
+    # Deliberately NOT showing the poem as verse-formatted line breaks
+    # (e.g. joined with "\n") anywhere in this prompt - smaller local
+    # models (lfm2-1.2b-bench) reliably drifted into continuing in rhyme
+    # themselves when shown the literal rhyming line breaks, regardless of
+    # an explicit "plain prose" instruction (GPT-27 follow-up). This
+    # semicolon-joined form carries the same content without the visual
+    # shape of a poem.
+    full_poem = "; ".join(all_lines)
+    line_roles = "\n".join(
+        f'Line {i}: "{line}" (speaker: {speaker})'
+        for i, (line, speaker) in enumerate(zip(all_lines, speakers), start=1)
+    )
     return render(
         template,
         full_poem=full_poem,
-        speaker=speaker,
-        line_index=str(line_index),
+        line_roles=line_roles,
         line_total=str(len(all_lines)),
-        target_line=all_lines[line_index - 1],
     )
 
 
 def build_rewrite_prompt(target_word: str) -> str:
     template = load_template("rewrite_prompt_template.txt")
     return render(template, target_word=target_word)
-
-
-def build_scene_image_prompt(speaker: str, subject_description: str, stage_direction: str,
-                              scene_description: str = "", mood: str = "") -> str:
-    template = load_template("scene_prompt_template.txt")
-    if subject_description:
-        subject_line = (f"Character/subject (must appear first, be specific: species/type + 2-3 key visual "
-                         f"traits): {subject_description}, as {speaker}")
-    else:
-        # No fixed character for this speaker (e.g. "Narrator" - not a
-        # depicted character) - pull the subject from the scene itself
-        # instead of inventing an unrelated persona.
-        subject_line = ("There is no separate fixed character for this scene. Identify the SINGLE main visual "
-                         "subject described below and put IT first, specifically (species/type + 2-3 key visual "
-                         "traits) - do not invent an unrelated character.")
-    return render(
-        template,
-        subject_line=subject_line,
-        stage_direction=stage_direction,
-        scene_description=scene_description or "a soft, colorful children's picture-book setting",
-        mood=mood or "gentle and playful",
-    )

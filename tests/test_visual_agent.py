@@ -1,10 +1,21 @@
-"""Unit tests for visual_agent (GPT-16). LLM calls and the SD pipeline are
-mocked/synthetic - these test deterministic logic, not live generation."""
-import numpy as np
-from PIL import Image
-
+"""Unit tests for visual_agent (GPT-16). The SD pipeline is stubbed - these
+test deterministic logic, not live generation."""
 from src.agents import visual_agent as va
-from src.utils.llm_client import LLMError, LLMResult
+
+
+class FakeTokenizer:
+    """Whitespace tokenizer standing in for CLIP's - enough to exercise the
+    truncation branch without loading the real pipeline."""
+
+    def __call__(self, text, add_special_tokens=True):
+        return {"input_ids": text.split()}
+
+    def decode(self, ids):
+        return " ".join(ids)
+
+
+class FakePipe:
+    tokenizer = FakeTokenizer()
 
 
 def test_seed_for_character_is_deterministic():
@@ -16,34 +27,25 @@ def test_seed_for_character_differs_across_names():
     assert va.seed_for_character("Star") != va.seed_for_character("Narrator")
 
 
-def test_is_low_quality_flags_near_blank_image():
-    blank = Image.fromarray(np.full((64, 64, 3), 128, dtype=np.uint8))
-    assert va._is_low_quality(blank)
+def test_build_prompt_includes_style_anchor_and_description():
+    prompt = va.build_prompt(FakePipe(), {"scene_description": "a sheep in a field"})
+    assert prompt.startswith(va.STYLE_ANCHOR)
+    assert "a sheep in a field" in prompt
 
 
-def test_is_low_quality_accepts_varied_image():
-    rng = np.random.default_rng(0)
-    varied = Image.fromarray(rng.integers(0, 255, (64, 64, 3), dtype=np.uint8))
-    assert not va._is_low_quality(varied)
+def test_build_prompt_falls_back_when_description_missing():
+    prompt = va.build_prompt(FakePipe(), {})
+    assert va.STYLE_ANCHOR in prompt
+    assert "picture-book" in prompt
 
 
-def test_draft_subject_description_falls_back_on_llm_error(monkeypatch):
-    monkeypatch.setattr(va, "call_with_fallback", lambda **kwargs: (_ for _ in ()).throw(LLMError("boom")))
-    result = va.draft_subject_description("Star", {})
-    assert "star" in result.lower()
+def test_build_prompt_truncates_to_clip_budget():
+    long_description = " ".join(f"word{i}" for i in range(200))
+    prompt = va.build_prompt(FakePipe(), {"scene_description": long_description})
+    assert len(prompt.split()) == va.CLIP_TOKEN_BUDGET
 
 
-def test_draft_image_prompt_falls_back_on_llm_error(monkeypatch):
-    monkeypatch.setattr(va, "call_with_fallback", lambda **kwargs: (_ for _ in ()).throw(LLMError("boom")))
-    result = va.draft_image_prompt("Star", "a friendly star", "shining brightly", {},
-                                    scene_description="a night sky", mood="calm")
-    assert "a friendly star" in result
-    assert "shining brightly" in result
-
-
-def test_draft_image_prompt_uses_llm_text_when_available(monkeypatch):
-    monkeypatch.setattr(va, "call_with_fallback",
-                         lambda **kwargs: LLMResult(text="a cool custom prompt", model_used="fake",
-                                                     latency_s=0.0, attempts=1))
-    result = va.draft_image_prompt("Star", "a friendly star", "shining brightly", {})
-    assert result == "a cool custom prompt"
+def test_build_prompt_keeps_style_anchor_when_truncating():
+    long_description = " ".join(f"word{i}" for i in range(200))
+    prompt = va.build_prompt(FakePipe(), {"scene_description": long_description})
+    assert prompt.startswith(va.STYLE_ANCHOR)  # style anchor survives truncation

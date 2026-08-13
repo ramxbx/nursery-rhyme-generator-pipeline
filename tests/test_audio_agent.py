@@ -60,3 +60,37 @@ def test_apply_singsong_contour_threads_offset_across_calls():
     assert offset1 == 4
     _, offset2 = apply_singsong_contour(audio, sr=22050, n_words=3, start_offset=offset1)
     assert offset2 == 7
+
+
+def test_bark_take_is_trimmed_of_padding():
+    """Bark pads lines with trailing near-silence, which would otherwise
+    stretch the scene that audio belongs to."""
+    from src.utils.bark_tts import _trim_silence
+
+    speech = np.concatenate([
+        np.zeros(1000, dtype=np.float32),
+        np.ones(500, dtype=np.float32) * 0.5,
+        np.zeros(4000, dtype=np.float32),
+    ])
+    assert len(_trim_silence(speech)) == 500
+
+
+def test_generate_audio_falls_back_to_piper_when_bark_take_unusable(monkeypatch, tmp_path):
+    """A single bad Bark generation should degrade one line to Piper, not
+    fail the stage or ship silence."""
+    monkeypatch.setattr(aa, "load_voice", lambda cfg: FakeVoice(22050, 1.0))
+    monkeypatch.setattr(aa, "build_bark", lambda: object(), raising=False)
+    monkeypatch.setattr("src.utils.bark_tts.build_bark", lambda: object())
+    monkeypatch.setattr(aa, "synthesize_line_bark", lambda bark, text, cfg: None)
+
+    class FakeConfig:
+        tts = {"backend": "bark", "sample_rate": 48000, "singing_mode": False}
+        paths = {"audio_dir": tmp_path}
+
+    monkeypatch.setattr(aa, "ensure_dirs", lambda paths: {"audio_dir": tmp_path})
+    script = {"scenes": [{"line": "Baa baa black sheep,", "duration_s": 2.0}]}
+    manifest = aa.generate_audio(script, FakeConfig())
+
+    assert len(manifest) == 1
+    assert manifest[0]["source"] == "piper"
+    assert manifest[0]["actual_duration_s"] > 0

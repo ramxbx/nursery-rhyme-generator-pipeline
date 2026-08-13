@@ -1,12 +1,30 @@
 backend: diffusers
-base_model: stable-diffusion-v1-5/stable-diffusion-v1-5
-variant: fp16
-lora: latent-consistency/lcm-lora-sdv1-5
-steps: 4
-guidance_scale: 1.5
-negative_prompt: "blurry, distorted, deformed, extra limbs, extra fingers, mutated, text, watermark, signature, ugly, low quality, scary, dark, grayscale, photorealistic, realistic, 3d render, photograph, painterly, detailed shading, soft render"
+# Modern Disney style, a community fine-tune of SD1.5 (GPT-31). Base SD1.5 is
+# the raw research release and looks it - swapping to a fine-tuned checkpoint
+# was by far the largest single quality jump in this project, from ~1-in-4
+# scenes coherent to a genuinely appealing cartoon look, at the same speed,
+# VRAM and step count. Trigger phrase "modern disney style" leads every prompt
+# (see STYLE_ANCHOR in visual_agent.py). No fp16 variant published, so `variant`
+# is unset here and weights are cast to fp16 at load time instead.
+base_model: nitrosocke/mo-di-diffusion
+# LCM-LoRA was dropped (tested at 4/8/14+ steps and in several LoRA-stacking
+# combinations without a clear quality win) and a StorybookRedmond style LoRA
+# was tried and reverted (seed-sensitive, frequently wrong subject). Standard
+# scheduler at a normal step count, with DPM++ 2M Karras set in sd_pipeline.py.
+steps: 30
+guidance_scale: 7.0
+# Deliberately does NOT contain "3d render" / "photorealistic" / "painterly".
+# Those were left over from the flat-crayon era and actively fight this
+# checkpoint, whose native look IS 3D Disney-style rendering - including them
+# pushed output into a washed-out middle ground (distant, photographic-looking
+# scenes) instead of the appealing cartoon style the model does well (GPT-31).
+negative_prompt: "blurry, distorted, deformed, extra limbs, extra fingers, mutated, text, watermark, signature, ugly, low quality, scary, dark, grayscale"
+# SD1.5 is trained at 512x512; generating at a strongly non-square aspect is
+# off-distribution and was a direct cause of the duplicated/tiled-subject and
+# melted-composition failures chased in GPT-28 (GPT-32). Generate square, then
+# crop to the 16:9 video frame during FFmpeg assembly.
 width: 512
-height: 288
+height: 512
 output_width: 1920
 output_height: 1080
 seed_per_character: true

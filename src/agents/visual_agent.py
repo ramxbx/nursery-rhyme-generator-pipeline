@@ -1,10 +1,16 @@
 """Visual composition agent (GPT-11).
 
-Codex controls stage execution, quality gates, retries, and fallback
-decisions. The CPU-hosted local model only drafts image prompts from
-already-approved scene data (bounded task). SD1.5 + LCM-LoRA generates the
-images and is the only stage allowed to touch the GTX 1050's GPU - one
-process, one load, released when this stage's process exits.
+Reads each scene's description from the script and generates one image
+with plain SD1.5. This is the only stage allowed to touch the GTX 1050's
+GPU - one process, one load, released when this stage's process exits.
+
+Deliberately minimal. Earlier versions layered on an LLM prompt-drafting
+call, LCM-LoRA, a style LoRA, chunked long-prompt encoding, and three
+quality-gate/retry checks (blank, tiled, CLIP wrong-subject). Each was
+tested and none reliably improved final image quality - the LLM drafting
+step in particular lost the actual subject on some scenes, and the retry
+gates mostly burned attempts without converging on better output. Stripped
+back to the simplest thing that works: scene description in, image out.
 
 Native generation is low-res (~512x288); upscaling to 1920x1080 happens
 later during FFmpeg assembly (GPT-13), not here - see GPT-18/GPT-11 for why
@@ -16,24 +22,43 @@ import argparse
 import hashlib
 import sys
 from pathlib import Path
-from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-import numpy as np
 import torch
 
 from src.config import PipelineConfig, load_config
 from src.utils.file_manager import ensure_dirs, read_json, safe_write_json, scene_path
-from src.utils.llm_client import LLMError, call_with_fallback
 from src.utils.logger import get_logger, log_with_fields
-from src.utils.prompt_builder import PromptError, build_scene_image_prompt
-from src.utils.sd_pipeline import build_pipeline, to_cpu_fallback
+from src.utils.sd_pipeline import (
+    build_clip_verifier, build_pipeline, clip_subject_similarity, to_cpu_fallback,
+)
 
 logger = get_logger("visual_agent")
 
-MAX_GEN_RETRIES = 2
-LOW_QUALITY_STD_THRESHOLD = 8.0  # near-uniform (blank) image guard
+# Best-of-N over seeds, scored by CLIP subject similarity (GPT-34). A single
+# generation lands a correct, coherent subject maybe half the time even with a
+# good checkpoint, and "amazing SD1.5 images" seen online are heavily
+# survivor-biased - people generate a batch and keep one. This is the automated
+# equivalent. Rather than accept the first image clearing a threshold, generate
+# a few and keep the best-scoring one, so a scene never ships worse output than
+# it had to. Kept small: each attempt is a full ~40s generation.
+CLIP_ATTEMPTS = 3
+# Above this, a candidate is good enough to stop early rather than spend the
+# remaining attempts. Set from observed scores on this checkpoint: a full run
+# where every scene rendered a clear, correct subject scored 0.275-0.290, so an
+# earlier 0.30 bar was never reached and every scene wasted its full attempt
+# budget. 0.275 stops early on a genuinely good image while still rejecting the
+# 0.23-0.25 band that wrong-subject renders fall into.
+CLIP_GOOD_ENOUGH = 0.275
+
+# Leads every prompt so the style stays consistent scene-to-scene (GPT-22).
+# "modern disney style" is the trigger phrase mo-di-diffusion was fine-tuned on
+# (config/sd_config.yml) - without it the checkpoint drifts toward generic
+# photographic output. The framing terms are here because the checkpoint's
+# failure mode is composing the subject small and distant in a wide landscape;
+# stating the framing explicitly keeps it front and centre (GPT-31).
+STYLE_ANCHOR = "modern disney style, cute children's cartoon, subject close up and centered, simple background"
 
 
 def seed_for_character(name: str) -> int:
@@ -43,148 +68,95 @@ def seed_for_character(name: str) -> int:
     return int(digest[:8], 16)
 
 
-def draft_subject_description(speaker: str, llm_config: dict) -> str:
-    """One bounded LLM call per unique character to fix a consistent visual
-    description, reused across every scene that character appears in."""
-    system = (
-        "Describe a children's picture-book character in ONE short phrase "
-        "(under 15 words) covering species/type, key visual traits, and "
-        "color palette. Output ONLY the phrase, no other text."
-    )
-    try:
-        result = call_with_fallback(system_prompt=system, user_prompt=speaker,
-                                     llm_config=llm_config, parse_json=False, max_tokens=60)
-        return result.text.strip().strip('"')
-    except LLMError as e:
-        log_with_fields(logger, 30, "subject description drafting failed, using deterministic default",
-                         speaker=speaker, error=str(e))
-        return f"a friendly cartoon {speaker.lower()}, soft pastel colors"
+def build_prompt(pipe, scene: dict) -> str:
+    """Scene description + fixed style anchor, truncated to what SD1.5's
+    CLIP text encoder can actually read (77 tokens per pass, including
+    BOS/EOS - anything beyond that is silently ignored by the model). The
+    style anchor is placed first so it always survives truncation."""
+    description = scene.get("scene_description") or "soft colorful picture-book setting, gentle pastel colors"
+    text = f"{STYLE_ANCHOR}, {description}"
+    tokenizer = pipe.tokenizer
+    ids = tokenizer(text, add_special_tokens=False)["input_ids"]
+    if len(ids) <= CLIP_TOKEN_BUDGET:
+        return text
+    return tokenizer.decode(ids[:CLIP_TOKEN_BUDGET])
 
 
-# Appended to every image prompt regardless of what the LLM drafts, so the
-# cartoon/kid-drawing look stays consistent scene-to-scene rather than
-# depending on the model remembering the style instruction each call (GPT-22).
-STYLE_ANCHOR = "children's crayon drawing, bold flat cartoon colors, thick black outlines, simple shapes, kid-drawn style"
-
-
-def draft_image_prompt(speaker: str, subject_description: str, stage_direction: str, llm_config: dict,
-                        scene_description: str = "", mood: str = "") -> str:
-    """Bounded prompt drafting: expand scene data into an SD-style prompt."""
-    template_prompt = build_scene_image_prompt(speaker, subject_description, stage_direction,
-                                                scene_description, mood)
-    try:
-        result = call_with_fallback(
-            system_prompt=template_prompt,
-            user_prompt="Write the image prompt now.",
-            llm_config=llm_config,
-            parse_json=False,
-            max_tokens=120,
-        )
-        text = result.text.strip() or template_prompt
-    except (LLMError, PromptError) as e:
-        log_with_fields(logger, 30, "image prompt drafting failed, using template directly", error=str(e))
-        text = f"{subject_description}, {stage_direction}, {scene_description}"
-
-    return text
-
-
-def _is_low_quality(image) -> bool:
-    arr = np.asarray(image.convert("L"), dtype=np.float32)
-    return float(arr.std()) < LOW_QUALITY_STD_THRESHOLD
+CLIP_TOKEN_BUDGET = 75  # CLIP's hard cap is 77 including BOS/EOS
 
 
 def generate_image(pipe, prompt: str, seed: int, sd_config: dict):
-    """Generate one image, retrying on low-quality output, with a CPU
-    fallback on CUDA OOM."""
+    """Generate one image, with a CPU fallback on CUDA OOM."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    last_image = None
-    for attempt in range(MAX_GEN_RETRIES + 1):
-        gen_seed = seed + attempt
-        generator = torch.Generator(device=device if device == "cuda" else "cpu").manual_seed(gen_seed)
+    for _ in range(2):
+        generator = torch.Generator(device=device if device == "cuda" else "cpu").manual_seed(seed)
         try:
             result = pipe(
-                prompt,
+                prompt=prompt,
                 negative_prompt=sd_config.get("negative_prompt"),
-                num_inference_steps=sd_config.get("steps", 4),
-                guidance_scale=sd_config.get("guidance_scale", 1.0),
+                num_inference_steps=sd_config.get("steps", 30),
+                guidance_scale=sd_config.get("guidance_scale", 7.0),
                 width=sd_config.get("width", 512),
                 height=sd_config.get("height", 288),
                 generator=generator,
             )
-            image = result.images[0]
+            return result.images[0], pipe
         except torch.cuda.OutOfMemoryError:
-            log_with_fields(logger, 40, "CUDA OOM during generation, falling back to CPU", attempt=attempt)
+            log_with_fields(logger, 40, "CUDA OOM during generation, falling back to CPU")
             pipe = to_cpu_fallback(pipe)
             device = "cpu"
-            continue
 
-        if not _is_low_quality(image):
-            return image, pipe
-        last_image = image
-        log_with_fields(logger, 30, "low-quality image detected, retrying", attempt=attempt, seed=gen_seed)
-
-    return last_image, pipe
+    raise RuntimeError("Image generation failed on both GPU and CPU")
 
 
-CLIP_TOKEN_BUDGET = 70  # SD1.5's CLIP text encoder hard-truncates at 77; leave headroom for special tokens
-DRAFT_TOKEN_BUDGET = 50  # leaves room for STYLE_ANCHOR to be appended and still fit under CLIP_TOKEN_BUDGET
+def generate_best_image(pipe, prompt: str, seed: int, sd_config: dict, clip_verifier, subject: str):
+    """Generate up to CLIP_ATTEMPTS candidates from consecutive seeds and keep
+    the one whose CLIP subject-similarity is highest, stopping early once a
+    candidate is clearly good (GPT-34). Returns (image, pipe, score, attempts)."""
+    best_image, best_score = None, -1.0
+    for attempt in range(CLIP_ATTEMPTS):
+        image, pipe = generate_image(pipe, prompt, seed + attempt, sd_config)
+        score = clip_subject_similarity(clip_verifier, image, subject)
+        if score > best_score:
+            best_image, best_score = image, score
+        if score >= CLIP_GOOD_ENOUGH:
+            return best_image, pipe, best_score, attempt + 1
+        log_with_fields(logger, 20, "candidate below quality bar, retrying",
+                         attempt=attempt + 1, score=round(score, 4), subject=subject)
+    return best_image, pipe, best_score, CLIP_ATTEMPTS
 
 
-def _truncate_to_clip_limit(pipe, text: str, max_tokens: int = CLIP_TOKEN_BUDGET) -> str:
-    """Hard safety net: SD1.5's CLIP text encoder silently truncates at 77
-    tokens regardless of prompt drafting instructions - verified this was
-    happening even after asking the LLM to keep it short (GPT-22 follow-up).
-    Truncates deterministically by token count, not word/char count, so the
-    subject (front-loaded by the prompt template) survives regardless of
-    how verbose the drafted text turns out to be."""
-    tokenizer = pipe.tokenizer
-    ids = tokenizer(text, add_special_tokens=False)["input_ids"]
-    if len(ids) <= max_tokens:
-        return text
-    truncated = tokenizer.decode(ids[:max_tokens])
-    log_with_fields(logger, 30, "image prompt exceeded CLIP token limit, truncated",
-                     original_tokens=len(ids), max_tokens=max_tokens)
-    return truncated
+def _subject_of(scene: dict) -> str:
+    """The scene description's first comma-separated segment is the subject -
+    the template requires every prompt to lead with it (species + colour + a
+    key trait). Used as the CLIP verification target."""
+    description = scene.get("scene_description") or ""
+    return description.split(",", 1)[0].strip() or "a children's cartoon character"
 
 
 def generate_visuals(script: dict, config: PipelineConfig) -> list[dict]:
     dirs = ensure_dirs(config.paths)
     pipe = build_pipeline(config.sd)
-
-    subject_descriptions: dict[str, str] = {}
+    clip_verifier = build_clip_verifier()
     manifest = []
 
     for i, scene in enumerate(script["scenes"], start=1):
         speaker = scene["speaker"]
-        # "Narrator" is a storytelling role, not a depicted character -
-        # drafting a visual persona for it invents an unrelated mascot
-        # (e.g. a bunny) that then gets front-loaded ahead of the scene's
-        # actual subject. Leave it empty so the prompt template pulls the
-        # subject from scene_description instead, which is reliably about
-        # the poem's real subject (see GPT-22 follow-up).
-        if speaker.lower() == "narrator":
-            subject_descriptions.setdefault(speaker, "")
-        elif speaker not in subject_descriptions:
-            subject_descriptions[speaker] = draft_subject_description(speaker, config.llm)
-            log_with_fields(logger, 20, "subject description fixed", speaker=speaker,
-                             description=subject_descriptions[speaker])
-
-        draft = draft_image_prompt(speaker, subject_descriptions[speaker], scene["stage_direction"], config.llm,
-                                    scene.get("scene_description", ""), scene.get("mood", ""))
-        # Truncate the draft first (subject is front-loaded by the prompt
-        # template, so it survives), then append the style anchor and
-        # truncate again as a final safety net - guarantees both the
-        # subject AND the style anchor fit within CLIP's 77-token limit
-        # regardless of how verbose the LLM's draft turns out to be.
-        draft = _truncate_to_clip_limit(pipe, draft, max_tokens=DRAFT_TOKEN_BUDGET)
-        prompt = _truncate_to_clip_limit(pipe, f"{draft}, {STYLE_ANCHOR}")
-        seed = seed_for_character(speaker)
-        image, pipe = generate_image(pipe, prompt, seed, config.sd)
+        prompt = build_prompt(pipe, scene)
+        subject = _subject_of(scene)
+        # Offset by scene index so a single-narrator poem doesn't generate
+        # every scene from the identical seed (GPT-28).
+        seed = seed_for_character(speaker) + i * 1000
+        image, pipe, score, attempts = generate_best_image(
+            pipe, prompt, seed, config.sd, clip_verifier, subject)
+        log_with_fields(logger, 20, "scene subject verified", scene_index=i,
+                         score=round(score, 4), attempts=attempts, subject=subject)
 
         out_path = scene_path(dirs["images_dir"], i, ".png")
         image.save(out_path)
         manifest.append({"scene_index": i, "speaker": speaker, "prompt": prompt,
-                          "seed": seed, "image_path": str(out_path)})
+                          "seed": seed, "image_path": str(out_path),
+                          "clip_score": round(score, 4), "attempts": attempts})
         log_with_fields(logger, 20, "scene image generated", scene_index=i, image_path=str(out_path))
 
     return manifest

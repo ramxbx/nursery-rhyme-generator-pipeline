@@ -1,7 +1,7 @@
 """Unit tests for prompt_builder.py (GPT-16)."""
 import pytest
 
-from src.utils.prompt_builder import PromptError, build_dialogue_prompt, build_scene_image_prompt, render
+from src.utils.prompt_builder import PromptError, build_dialogue_prompt, render
 
 
 def test_render_substitutes_variables():
@@ -26,11 +26,3 @@ def test_build_dialogue_prompt_handles_empty_cast():
     assert "(none yet)" in prompt
 
 
-def test_build_scene_image_prompt_includes_all_fields():
-    prompt = build_scene_image_prompt("Star", "a friendly star", "shining brightly",
-                                       scene_description="a night sky", mood="calm")
-    assert "Star" in prompt
-    assert "a friendly star" in prompt
-    assert "shining brightly" in prompt
-    assert "a night sky" in prompt
-    assert "calm" in prompt

@@ -4,36 +4,36 @@
   ],
   "scenes": [
     {
-      "line": "Ba-a-ba, merry black sheep,",
+      "line": "Once upon a time there is a happy cow,",
       "speaker": "Narrator",
-      "stage_direction": "Enter a lively farm scene",
-      "scene_description": "In a lush, sun-drenched meadow under a clear blue sky, a group of playful, mischievous black sheep frolic joyfully, their wool shimmering in the golden light. The narrator, a friendly and warm-voiced adult with kind eyes and a gentle smile, stands just beyond the flock, addressing them with a soft, inviting tone. The sheep are depicted as lively and curious, with fluffy coats that catch the sunlight, creating a contrast between the dark wool and the bright green grass beneath their hooves. In the background, a gentle breeze rustles through tall wildflowers, adding to the serene yet lively atmosphere. The scene exudes a sense of happiness and contentment, setting an upbeat and cheerful tone for the narrative that follows.",
-      "mood": "joyful and cheerful",
-      "duration_s": 3.35
+      "stage_direction": "Setting introduced, peaceful scene",
+      "scene_description": "happy cow, brown and white patches, standing in a green grassy field, sunny morning, happy expression",
+      "mood": "calm and dreamy",
+      "duration_s": 4.55
     },
     {
-      "line": "Do you have any fluffy wool?",
+      "line": "the cow jumped from top of a hill,",
       "speaker": "Narrator",
-      "stage_direction": "Asks question",
-      "scene_description": "In a cozy, sunlit barn filled with the soft clucking of hens and the gentle mooing of cows, our narrator stands before a group of sheep grazing peacefully in a lush green field. The main character is a lively black sheep, standing tall with its wool cascading down to its hooves, creating a warm, inviting silhouette against the golden afternoon light. Its eyes sparkle with curiosity as it turns towards the narrator, ears perked up, and a slight tilt of its head suggests both interest and playfulness. The background features a mix of soft pastel colors—pale blues and greens for the sky and grass, with hints of warm browns and yellows in the barn's wooden beams and the hay bales stacked neatly nearby. The lighting is soft and diffused, casting gentle shadows that add depth to the scene without overpowering it. The emotional tone is one of friendly anticipation, inviting both the narrator and the audience into a moment of playful exchange.",
-      "mood": "Playful and curious",
-      "duration_s": 3.3
+      "stage_direction": "Narrator describes action",
+      "scene_description": "happy cow, brown and white patches, jumping from top of a hill, hill covered with yellow flowers and pine trees, blue sky",
+      "mood": "playful",
+      "duration_s": 3.85
     },
     {
-      "line": "Yes sir, yes sir,",
+      "line": "the hill had flowers and smell of pine,",
       "speaker": "Narrator",
-      "stage_direction": "Singing response",
-      "scene_description": "The setting is a cozy barn filled with soft, golden light filtering through the wooden slats on an early morning. The main character, a plump and content black sheep, stands in the center of the barn, its fluffy white wool contrasting beautifully against the warm, amber hues. The sheep's eyes are wide with a gentle, almost playful curiosity as it nods its head slightly to affirm the question. Its ears are perked up, and it tilts its head to one side, creating an endearing expression. The background is cluttered with hay bales in various stages of decay, adding texture and warmth to the scene. A small wooden cart filled with colorful yarns and wool samples sits nearby, hinting at the bounty that lies ahead. The emotional tone is warm and inviting, as if the sheep is eager to share its joy and abundance with anyone who listens. The narrator should speak this line with a gentle, reassuring cadence, conveying both the sheep's enthusiasm and the comforting nature of the moment.",
-      "mood": "calm and gentle",
-      "duration_s": 2.3
+      "stage_direction": "Describes setting",
+      "scene_description": "happy cow, brown and white patches, standing on a hill with flowers, smell of pine visible in the air, green grassy field background",
+      "mood": "calm and serene",
+      "duration_s": 3.85
     },
     {
-      "line": "Three bags full.",
+      "line": "The cow munched on grass and produced plenty of milk.",
       "speaker": "Narrator",
-      "stage_direction": "Describing the action",
-      "scene_description": "The camera zooms in on the narrator's expressive face, their eyes twinkling with warmth and excitement as they deliver the final line, \"Three bags full.\" The setting is a cozy barnyard at dusk, bathed in soft, golden light filtering through the trees. The sky is painted with hues of orange and pink, casting long shadows across the grassy field. In the background, a flock of sheep grazes peacefully, their woolly coats shimmering in the fading light. The main character, a lively black sheep named Baa-Ba, stands proudly in the center of the scene, his fluffy white fleece cascading down to his hooves. He lifts one paw slightly, as if gesturing expansively with pride and joy. His eyes are wide with contentment, and a gentle smile plays on his lips, reflecting the satisfaction of having something valuable to share. The emotional tone is one of cheerful abundance and generosity, inviting the viewer into a world where simple pleasures bring immense happiness.",
-      "mood": "Playful",
-      "duration_s": 1.55
+      "stage_direction": "Cow is performing action",
+      "scene_description": "happy cow, brown and white patches, munched on grass and producing milk, happy expression, green grassy field setting",
+      "mood": "calm and peaceful",
+      "duration_s": 5.4
     }
   ]
 }

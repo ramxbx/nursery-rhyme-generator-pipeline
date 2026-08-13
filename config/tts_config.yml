@@ -1,4 +1,11 @@
-backend: piper
+# piper = fast speech, pitch-shifted into the poem's real melody by singing.py.
+# bark  = genuinely sung vocals, but ~17x realtime (many minutes per run), picks
+#         its own melody rather than the poem's, and is non-deterministic - Piper
+#         is used as a per-line fallback when a take comes back unusable.
+backend: bark
+bark_voice_preset: v2/en_speaker_9
+# Only applies to the piper backend; Bark already sings, so pitch-shifting its
+# output would fight the melody it generated.
 singing_mode: true
 voice_onnx: models/piper/en/en_US/lessac/high/en_US-lessac-high.onnx
 voice_config: models/piper/en/en_US/lessac/high/en_US-lessac-high.onnx.json
