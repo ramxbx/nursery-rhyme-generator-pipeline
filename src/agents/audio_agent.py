@@ -45,20 +45,37 @@ def resample_linear(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarr
     return np.interp(target_t, orig_t, audio).astype(np.float32)
 
 
-def synthesize_line_bark(bark, text: str, tts_config: dict) -> np.ndarray | None:
+# Scene clips are joined with an audio crossfade (CROSSFADE_S in
+# animate_agent), which blends the tail of one scene into the head of the next.
+# Without a silent tail to absorb that blend, the crossfade overlaps real
+# singing from adjacent scenes and you hear two lines at once. Piper output
+# used to be padded out to the script's duration estimate, which hid this;
+# Bark output is not padded and is actively trimmed of trailing silence, so
+# the overlap became audible. Every clip now ends with enough silence to
+# cover the crossfade regardless of backend.
+TAIL_SILENCE_S = 0.6
+
+
+def _pad_tail(audio: np.ndarray, sr: int) -> np.ndarray:
+    return np.concatenate([audio, np.zeros(int(sr * TAIL_SILENCE_S), dtype=np.float32)])
+
+
+def synthesize_line_bark(bark, text: str, tts_config: dict,
+                          target_duration_s: float | None = None) -> np.ndarray | None:
     """Sung audio for one line via Bark, resampled to the pipeline rate.
 
-    Deliberately does NOT pad or trim to the script's duration estimate: Bark
-    chooses its own phrasing and tempo, so forcing it to a predicted length
-    would either cut a line off mid-word or leave dead air. Scene and subtitle
-    timing follow the real audio length instead (see generate_audio).
+    target_duration_s is the script's syllable-based estimate. It is used only
+    as an upper bound to reject takes that ramble well past the lyric - Bark is
+    never stretched or trimmed to hit it exactly, since forcing its self-chosen
+    phrasing to a predicted length would cut words off or leave dead air. Scene
+    and subtitle timing follow the real audio length (see generate_audio).
 
     Returns None when Bark returns an unusable take, so the caller can fall
     back to Piper rather than shipping a silent scene."""
     from src.utils.bark_tts import BARK_SAMPLE_RATE, DEFAULT_VOICE_PRESET, sing_line
 
     preset = tts_config.get("bark_voice_preset") or DEFAULT_VOICE_PRESET
-    audio = sing_line(bark, text, preset)
+    audio = sing_line(bark, text, preset, target_duration_s=target_duration_s)
     if audio is None:
         return None
     return resample_linear(audio, BARK_SAMPLE_RATE, tts_config.get("sample_rate", 48000))
@@ -126,7 +143,7 @@ def generate_audio(script: dict, config: PipelineConfig) -> list[dict]:
     for i, scene in enumerate(script["scenes"], start=1):
         audio, source = None, "piper"
         if use_bark:
-            audio = synthesize_line_bark(bark, scene["line"], config.tts)
+            audio = synthesize_line_bark(bark, scene["line"], config.tts, scene["duration_s"])
             if audio is None:
                 log_with_fields(logger, 30, "bark take unusable, falling back to piper", scene_index=i)
             else:
@@ -135,6 +152,7 @@ def generate_audio(script: dict, config: PipelineConfig) -> list[dict]:
             audio, melody_offset = synthesize_line(
                 voice, scene["line"], scene["duration_s"], config.tts, melody_offset)
 
+        audio = _pad_tail(audio, sample_rate)
         out_path = scene_path(dirs["audio_dir"], i, ".wav")
         sf.write(out_path, audio, sample_rate, subtype="PCM_16")
 

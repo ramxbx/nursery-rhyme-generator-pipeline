@@ -81,7 +81,7 @@ def test_generate_audio_falls_back_to_piper_when_bark_take_unusable(monkeypatch,
     monkeypatch.setattr(aa, "load_voice", lambda cfg: FakeVoice(22050, 1.0))
     monkeypatch.setattr(aa, "build_bark", lambda: object(), raising=False)
     monkeypatch.setattr("src.utils.bark_tts.build_bark", lambda: object())
-    monkeypatch.setattr(aa, "synthesize_line_bark", lambda bark, text, cfg: None)
+    monkeypatch.setattr(aa, "synthesize_line_bark", lambda bark, text, cfg, target=None: None)
 
     class FakeConfig:
         tts = {"backend": "bark", "sample_rate": 48000, "singing_mode": False}
@@ -94,3 +94,45 @@ def test_generate_audio_falls_back_to_piper_when_bark_take_unusable(monkeypatch,
     assert len(manifest) == 1
     assert manifest[0]["source"] == "piper"
     assert manifest[0]["actual_duration_s"] > 0
+
+
+class FakeBarkTakes:
+    """Returns a scripted sequence of take lengths (seconds) so retry logic
+    can be tested without running the real model."""
+
+    def __init__(self, durations_s):
+        self.durations = list(durations_s)
+        self.calls = 0
+
+    def __call__(self, bark, text, preset):
+        self.calls += 1
+        n = int(24000 * self.durations[min(self.calls - 1, len(self.durations) - 1)])
+        return np.ones(n, dtype=np.float32) * 0.5
+
+
+def test_bark_retries_when_take_runs_far_past_the_lyric(monkeypatch):
+    """An over-long take should be rejected and regenerated - Bark has no
+    duration control and scene length follows audio length."""
+    from src.utils import bark_tts
+
+    takes = FakeBarkTakes([20.0, 3.0])  # first rambles, second is fine
+    monkeypatch.setattr(bark_tts, "_generate_take", takes)
+    monkeypatch.setattr(bark_tts, "normalize_pitch", lambda a, sr: a)
+
+    audio = bark_tts.sing_line(object(), "a short line", target_duration_s=4.0)
+    assert takes.calls == 2
+    assert abs(len(audio) / 24000 - 3.0) < 0.01
+
+
+def test_bark_keeps_shortest_take_when_all_are_over_long(monkeypatch):
+    """Falling back to speech is worse than a slightly-long sung take, so the
+    least-bad take is kept rather than discarded."""
+    from src.utils import bark_tts
+
+    takes = FakeBarkTakes([20.0, 12.0, 15.0])
+    monkeypatch.setattr(bark_tts, "_generate_take", takes)
+    monkeypatch.setattr(bark_tts, "normalize_pitch", lambda a, sr: a)
+
+    audio = bark_tts.sing_line(object(), "a short line", target_duration_s=4.0)
+    assert takes.calls == bark_tts.MAX_TAKES
+    assert abs(len(audio) / 24000 - 12.0) < 0.01
