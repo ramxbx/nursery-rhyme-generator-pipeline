@@ -6,32 +6,32 @@
     {
       "line": "Once upon a time there is a happy cow,",
       "speaker": "Narrator",
-      "stage_direction": "Setting introduces a new scene with a happy setting",
-      "scene_description": "creamy white cow, standing in a green grassy field, happy expression, bright sunlight",
+      "stage_direction": "Setting introduced, peaceful scene",
+      "scene_description": "happy cow, brown and white patches, standing in a green grassy field, sunny morning, happy expression",
       "mood": "calm and dreamy",
       "duration_s": 4.55
     },
     {
       "line": "the cow jumped from top of a hill,",
       "speaker": "Narrator",
-      "stage_direction": "Descending hillside",
-      "scene_description": "creamy white cow, jumping from top of a hill, dynamic pose, mid-air action",
+      "stage_direction": "Narrator describes action",
+      "scene_description": "happy cow, brown and white patches, jumping from top of a hill, hill covered with yellow flowers and pine trees, blue sky",
       "mood": "playful",
       "duration_s": 3.85
     },
     {
-      "line": "The hill sparkled with blooms and the scent of pine,",
+      "line": "the hill had flowers and smell of pine,",
       "speaker": "Narrator",
-      "stage_direction": "Setting transition to a serene forest clearing",
-      "scene_description": "creamy white cow, overlooking a hill sparkling with blooms and scent of pine, scenic view",
-      "mood": "calm and dreamy",
-      "duration_s": 4.55
+      "stage_direction": "Describes setting",
+      "scene_description": "happy cow, brown and white patches, standing on a hill with flowers, smell of pine visible in the air, green grassy field background",
+      "mood": "calm and serene",
+      "duration_s": 3.85
     },
     {
       "line": "The cow munched on grass and produced plenty of milk.",
       "speaker": "Narrator",
-      "stage_direction": "Cow performing action",
-      "scene_description": "creamy white cow, munched on grass, producing plenty of milk, contented expression",
+      "stage_direction": "Cow is performing action",
+      "scene_description": "happy cow, brown and white patches, munched on grass and producing milk, happy expression, green grassy field setting",
       "mood": "calm and peaceful",
       "duration_s": 5.4
     }
