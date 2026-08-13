@@ -3,8 +3,8 @@
 Not true singing-voice synthesis - that needs a note-aligned score and a
 dedicated model like DiffSinger (a much bigger lift, flagged as a stretch
 goal in GPT-12). This applies a pitch contour across a line's natural
-word-segments via librosa pitch-shifting, giving spoken narration a
-melodic, sung-like cadence without any new model dependency.
+word-segments, giving spoken narration a melodic, sung-like cadence
+without any new model dependency.
 
 GPT-23 fix: the contour used to be an arbitrary wandering pattern with no
 relationship to any real tune, which is why it didn't sound "in tune" -
@@ -15,11 +15,23 @@ most common melody in the classic-nursery-rhyme repertoire. A running
 offset can be threaded across calls (see audio_agent.py) so the melody
 continues progressing through a whole poem instead of restarting at note
 one on every line.
+
+GPT-30 fix: segments used to be pitch-shifted via librosa's phase-vocoder
+(librosa.effects.pitch_shift), which introduced audible metallic/robotic
+artifacts on speech, especially at this contour's larger shifts (up to 9
+semitones). Switched to ffmpeg's rubberband filter (Rubber Band Library,
+formant-preserving, designed for vocals) - already compiled into this
+project's ffmpeg build, no new dependency.
 """
 from __future__ import annotations
 
-import librosa
+import tempfile
+from pathlib import Path
+
 import numpy as np
+import soundfile as sf
+
+from src.utils.ffmpeg_helper import rubberband_pitch_shift
 
 # "Twinkle Twinkle Little Star" / "Baa Baa Black Sheep" / ABC Song melody,
 # semitone offsets from the tonic: C C G G A A G | F F E E D D C
@@ -50,6 +62,17 @@ def _crossfade_concat(segments: list[np.ndarray], sr: int) -> np.ndarray:
     return out
 
 
+def _pitch_shift_segment(seg: np.ndarray, sr: int, n_steps: int) -> np.ndarray:
+    pitch_ratio = 2 ** (n_steps / 12)
+    with tempfile.TemporaryDirectory() as td:
+        in_path = Path(td) / "in.wav"
+        out_path = Path(td) / "out.wav"
+        sf.write(in_path, seg, sr, subtype="FLOAT")
+        rubberband_pitch_shift(in_path, out_path, pitch_ratio)
+        shifted, _ = sf.read(out_path, dtype="float32")
+    return shifted
+
+
 def apply_singsong_contour(audio: np.ndarray, sr: int, n_words: int,
                             contour: list[int] | None = None, start_offset: int = 0) -> tuple[np.ndarray, int]:
     """Pitch-shift a narration clip's word-segments along a melodic
@@ -74,6 +97,6 @@ def apply_singsong_contour(audio: np.ndarray, sr: int, n_words: int,
         if n_steps == 0:
             shifted.append(seg)
             continue
-        shifted.append(librosa.effects.pitch_shift(seg, sr=sr, n_steps=n_steps).astype(np.float32))
+        shifted.append(_pitch_shift_segment(seg, sr, n_steps).astype(np.float32))
 
     return _crossfade_concat(shifted, sr), start_offset + n_segments

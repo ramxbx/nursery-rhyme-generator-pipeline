@@ -12,7 +12,6 @@ huggingface_hub==1.27.0
 
 piper-tts==1.6.0
 soundfile==0.14.0
-librosa==0.11.0
 
 numpy==2.4.6
 PyYAML==6.0.3
