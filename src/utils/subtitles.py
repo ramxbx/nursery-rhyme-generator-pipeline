@@ -16,7 +16,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Kid,Comic Sans MS,{font_size},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,{outline},1,2,40,40,{margin_v},1
+Style: Kid,Comic Sans MS,{font_size},&H0000FFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,{outline},1,2,40,40,{margin_v},1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -35,7 +35,7 @@ def _ass_time(t: float) -> str:
 
 
 def write_ass_subtitles(lines: list[str], timeline: list[tuple[float, float]], out_path: Path,
-                         width: int, height: int, font_size: int = 72, outline: int = 4,
+                         width: int, height: int, font_size: int = 96, outline: int = 5,
                          margin_v: int = 60) -> Path:
     if len(lines) != len(timeline):
         raise ValueError(f"lines ({len(lines)}) and timeline ({len(timeline)}) length mismatch")

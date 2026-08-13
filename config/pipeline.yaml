@@ -13,12 +13,12 @@ script:
 music:
   enabled: true
   backend: musicgen  # musicgen | procedural
-  volume: 0.18
+  volume: 0.4
   prompt: "cheerful children's nursery rhyme background music, xylophone and ukulele, playful, gentle, major key"
 
 subtitles:
   enabled: true
-  font_size: 72
+  font_size: 96
 
 models:
   llm:
