@@ -1,11 +1,4 @@
 {
-  "arachnid": {
-    "features": [
-      "glowing light"
-    ],
-    "seed": 3700959154,
-    "subject": "radiant arachnid"
-  },
   "boy": {
     "build": "young",
     "colour": "",
@@ -56,13 +49,6 @@
     "seed": 1442097783,
     "subject": "sheep",
     "wearing": "a red collar"
-  },
-  "spider": {
-    "features": [
-      "dark brown"
-    ],
-    "seed": 3586707238,
-    "subject": "tiny spider"
   },
   "turtle": {
     "build": "small",

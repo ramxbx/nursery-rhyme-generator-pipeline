@@ -27,7 +27,7 @@ def test_first_sighting_registers_the_character():
     assert is_new
     assert bank["pig"]["subject"] == "a little pink pig"
     assert bank["pig"]["seed"] == 4242
-    assert "curled tail" in descriptor
+    assert descriptor == "a little pink pig", "the subject is recorded; nothing is inferred"
 
 
 def test_a_known_character_keeps_its_stored_look_not_the_new_poem_s():
@@ -111,7 +111,7 @@ def test_a_new_subject_is_registered_from_the_poem():
     d, seed, is_new = cb.resolve_character(
         bank, "little fox", 7, "little fox, bushy red tail, in a snowy forest, pine trees")
     assert is_new and "fox" in bank
-    assert "bushy red tail" in d
+    assert d == "little fox", "auto-registration records the subject only"
 
 
 def test_setting_is_not_registered_as_appearance():
@@ -120,14 +120,14 @@ def test_setting_is_not_registered_as_appearance():
     bank = {}
     cb.resolve_character(bank, "little fox", 7,
                           "little fox, bushy red tail, in a snowy forest, pine trees")
-    assert bank["fox"]["features"] == ["bushy red tail"]
+    assert bank["fox"]["features"] == []
 
 
 def test_pose_is_not_registered_as_appearance():
     bank = {}
     cb.resolve_character(bank, "a wise owl", 7,
                           "a wise owl, large round eyes, perched on an old oak branch, night sky")
-    assert bank["owl"]["features"] == ["large round eyes"]
+    assert bank["owl"]["features"] == []
 
 
 def test_appearance_classifier_keeps_traits_and_drops_situations():
@@ -151,7 +151,7 @@ def test_a_second_poem_reuses_the_registered_character(tmp_path):
     d, seed, is_new = cb.resolve_character(
         reloaded, "a huge blue fox", 999, "a huge blue fox, metal wings, on the moon")
     assert not is_new
-    assert "bushy red tail" in d and "metal wings" not in d
+    assert d == "little fox" and "metal wings" not in d
     assert seed == 7
 
 
@@ -162,7 +162,7 @@ def test_bare_scenery_nouns_are_not_registered_as_appearance():
     bank = {}
     cb.resolve_character(bank, "little fox", 7,
                           "little fox, bushy red tail, in a snowy forest, pine trees")
-    assert bank["fox"]["features"] == ["bushy red tail"]
+    assert bank["fox"]["features"] == []
     assert "pine trees" not in cb.descriptor_for(bank["fox"])
 
 
@@ -193,3 +193,22 @@ def test_every_shipped_accessory_survives_the_budget():
             continue
         d = cb.descriptor_for(entry)
         assert "wearing" in d, f"{key} lost its accessory: {d}"
+
+
+def test_auto_registration_never_infers_an_action_as_appearance():
+    """Three inference attempts leaked in turn: setting, scenery nouns, then
+    actions the verb blocklist did not know. A lamb registered as "zipping down
+    a dirt lane" was then described that way while sleeping indoors. Every leak
+    is permanent, so nothing is inferred at all."""
+    bank = {}
+    cb.resolve_character(bank, "fluffy white lamb", 1,
+                          "fluffy white lamb, zipping down a dirt lane, wet nose, bright daylight")
+    assert bank["lamb"]["features"] == []
+    assert "zipping" not in cb.descriptor_for(bank["lamb"])
+
+
+def test_hand_written_entries_keep_their_curated_features():
+    """Only inference is disabled - a curated entry is still used in full."""
+    entry = cb.load_bank()["pig"]
+    assert entry["features"], "shipped entries are hand-written and keep their detail"
+    assert "dark spot on left flank" in cb.descriptor_for(entry)

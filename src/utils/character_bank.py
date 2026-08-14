@@ -149,17 +149,23 @@ def entry_from_description(subject: str, scene_description: str, seed: int) -> d
     Entries are plain JSON and meant to be edited by hand; enriching a character
     after its first episode is expected, not a workaround, and is how the
     shipped six were written."""
-    segments = [s.strip() for s in (scene_description or "").split(",") if s.strip()]
-    # Only the segment immediately after the subject, and only if it reads as
-    # appearance. Reaching further down the list captures scenery: filtering by
-    # opening word rejects "in a snowy forest" and "perched on an oak branch",
-    # but bare noun phrases like "pine trees" and "night sky" pass any such test
-    # and would be registered as if they were part of the animal. Chasing those
-    # with a blocklist is endless, so the rule is simply to stop early.
-    features = [segments[1]] if len(segments) > 1 and is_appearance(segments[1]) else []
+    # Subject only. No features are inferred at all.
+    #
+    # Three attempts at inferring them all leaked. Taking two segments captured
+    # setting ("in a snowy forest"); filtering by opening word still let bare
+    # scenery nouns through ("pine trees", "night sky"); taking only the segment
+    # after the subject still captured actions the verb blocklist did not know
+    # ("zipping down a dirt lane"), which then described a lamb that was
+    # simultaneously sleeping indoors. A blocklist of English verbs and places
+    # cannot be completed, and every leak is permanent - it describes that
+    # character in every future episode.
+    #
+    # The cost is a thinner text descriptor, which matters much less now that
+    # IP-Adapter carries identity through a reference image rather than words.
+    # Enrichment is a manual edit; the shipped entries were all written by hand.
     return {
         "subject": subject.strip() or "character",
-        "features": features,
+        "features": [],
         "seed": int(seed),
     }
 
