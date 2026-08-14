@@ -1,4 +1,4 @@
-You are writing image-generation prompts for a children's animated video. Below are the full set of lines, already split one per line, each with its speaker noted. Write ONE image prompt PER LINE so that together they read like consecutive frames of the same story - not independent, disconnected snapshots.
+You are writing image-generation prompts for a children's animated video. Below are the video's scenes, already split one per line, each with its speaker noted. A scene may be one line of the poem or a few short ones joined together. Write ONE image prompt PER SCENE so that together they read like consecutive frames of the same story - not independent, disconnected snapshots.
 
 Before writing anything, first decide privately (do not write this part out) on exactly ONE visual subject for the WHOLE story: the character or object the story is actually about (the animal/object it names - NOT the narrator, who is a storytelling voice, never something to draw). Fix that subject's species/type, its exact color and markings, and the overall setting/world ONCE, then reuse those same facts, unchanged, in every single prompt below.
 
@@ -20,18 +20,19 @@ Hard rules - check your own output against these before answering:
 * Keep the same number and identity of characters throughout - do not introduce a second character that was never established, and do not turn one subject into several unless the story itself says so.
 * Never name the narrator or draw them as a person - they are an offscreen voice only.
 * Use anatomically correct terms for the subject's species (e.g. an animal with hooves has hooves, not hands).
-* Each prompt's action/pose/framing should reflect what THAT line specifically describes, while the subject's appearance and setting stay the same as everywhere else. Describe the action as a visible pose or arrangement of objects ("head tilted down", "three full sacks on the grass"), never as narrated events.
+* Each prompt's action/pose/framing should reflect what THAT scene specifically describes, while the subject's appearance and setting stay the same as everywhere else. Describe the action as a visible pose or arrangement of objects ("head tilted down", "three full sacks on the grass"), never as narrated events.
+* When a scene covers more than one line, draw the single moment that best carries all of it - one picture, not a collage.
 * No line breaks inside a prompt - each is one single line of comma-separated descriptors.
 
-All lines, in order:
+The whole story, in order:
 $full_poem
 
-Lines and speakers:
+Scenes and speakers:
 $line_roles
 
-Output EXACTLY in this format and nothing else - one block per line, in order, no extra commentary before or after:
+Output EXACTLY in this format and nothing else - one block per scene, in order, no extra commentary before or after:
 SCENE 1:
-<comma-separated descriptors for line 1>
+<comma-separated descriptors for scene 1>
 SCENE 2:
-<comma-separated descriptors for line 2>
+<comma-separated descriptors for scene 2>
 (continue through SCENE $line_total)

@@ -3,10 +3,17 @@
 Codex (this module) owns parsing, schema validation, retries, and duration
 estimation deterministically. The CPU-hosted local model (LFM2-1.2B primary,
 Gemma-3-1B-it-QAT fallback, per GPT-18) is only asked to annotate ONE
-already-isolated source line at a time with speaker + stage_direction -
-never to split/structure the rhyme itself. That decomposition failure was
-the exact reason gemma-3-1b was disqualified from whole-rhyme structuring
-in the GPT-18 benchmark.
+already-isolated scene at a time with speaker + stage_direction - never to
+split/structure the rhyme itself. That decomposition failure was the exact
+reason gemma-3-1b was disqualified from whole-rhyme structuring in the GPT-18
+benchmark.
+
+A scene used to be exactly one source line, which made the scene count an
+accident of how the input file was typed and left no way to even out a poem
+with lopsided lines. scene_planner now groups lines into as-even-as-possible
+scenes first, and everything here annotates those scenes rather than raw
+lines; the count is content-driven but still decided in code, keeping the
+rule above intact.
 """
 from __future__ import annotations
 
@@ -24,6 +31,7 @@ from src.utils.file_manager import ensure_dirs, safe_write_json
 from src.utils.llm_client import LLMError, call_with_fallback
 from src.utils.logger import get_logger, log_with_fields
 from src.utils.prompt_builder import build_dialogue_prompt, build_elaborate_story_prompt, build_rewrite_prompt
+from src.utils.scene_planner import ScenePlan, plan_scenes
 
 logger = get_logger("script_agent")
 
@@ -88,13 +96,32 @@ def count_syllables(word: str) -> int:
     return max(count, 1)
 
 
+def count_line_syllables(line: str) -> int:
+    return sum(count_syllables(w) for w in re.findall(r"[A-Za-z']+", line))
+
+
 def estimate_duration(line: str) -> float:
     """Syllable-aware duration estimate, plain code, no model involved."""
-    words = re.findall(r"[A-Za-z']+", line)
-    syllables = sum(count_syllables(w) for w in words)
+    syllables = count_line_syllables(line)
     pauses = line.count(",") * COMMA_PAUSE_S + LINE_END_PAUSE_S
     duration = syllables * SECONDS_PER_SYLLABLE + pauses
     return round(max(duration, MIN_LINE_DURATION_S), 2)
+
+
+# How far a rewritten line may drift from the poem's metre before it is
+# rejected. Two syllables is about a word: tight enough that lines stay
+# singable to one melody, loose enough that the model can still find natural
+# phrasing. Overshooting just costs a retry and then keeps the original line,
+# so this errs strict.
+METRE_TOLERANCE_SYLLABLES = 2
+
+
+def target_metre(lines: list[str]) -> int:
+    """The syllable count rewritten lines should aim for - the median of the
+    source poem's own lines, so the rewrite evens the metre out without
+    dragging the whole poem longer or shorter than it was written."""
+    counts = sorted(count_line_syllables(line) for line in lines)
+    return counts[len(counts) // 2] if counts else 0
 
 
 def _split_last_word(line: str) -> tuple[str, str, str]:
@@ -106,7 +133,8 @@ def _split_last_word(line: str) -> tuple[str, str, str]:
     return m.group(1), m.group(2), m.group(3)
 
 
-def _candidate_is_valid(candidate: str, last_word: str, original_line: str) -> bool:
+def _candidate_is_valid(candidate: str, last_word: str, original_line: str,
+                         target_syllables: int | None = None) -> bool:
     first_line = candidate.strip().splitlines()[0] if candidate.strip() else ""
     cleaned = re.sub(r"[.,!?;:]+$", "", first_line.strip())
     if not cleaned.lower().endswith(last_word.lower()):
@@ -118,10 +146,14 @@ def _candidate_is_valid(candidate: str, last_word: str, original_line: str) -> b
     # Catch run-on babbling: reject candidates far longer than the source line.
     if len(cleaned.split()) > 1.6 * len(original_line.split()):
         return False
+    # Metre: a line that does not fit the beat cannot be sung to the same tune
+    # as its neighbours, however good the wording is.
+    if target_syllables and abs(count_line_syllables(cleaned) - target_syllables) > METRE_TOLERANCE_SYLLABLES:
+        return False
     return True
 
 
-def rewrite_line_creatively(line: str, llm_config: dict) -> str:
+def rewrite_line_creatively(line: str, llm_config: dict, target_syllables: int | None = None) -> str:
     """Rewrite a line's wording while keeping its exact original end-word,
     which guarantees the rhyme scheme is preserved by construction (see
     GPT-20: full free-form rewriting loses either rhyme or theme on these
@@ -133,7 +165,7 @@ def rewrite_line_creatively(line: str, llm_config: dict) -> str:
     if not last_word:
         return line
 
-    system_prompt = build_rewrite_prompt(last_word + punct)
+    system_prompt = build_rewrite_prompt(last_word + punct, target_syllables)
     for attempt in range(1, REWRITE_MAX_RETRIES + 1):
         try:
             result = call_with_fallback(system_prompt=system_prompt, user_prompt=line,
@@ -143,7 +175,7 @@ def rewrite_line_creatively(line: str, llm_config: dict) -> str:
             break
 
         candidate = result.text.strip().splitlines()[0].strip() if result.text.strip() else ""
-        if candidate and _candidate_is_valid(candidate, last_word, line):
+        if candidate and _candidate_is_valid(candidate, last_word, line, target_syllables):
             log_with_fields(logger, 20, "line rewritten", attempt=attempt, original=line, rewritten=candidate)
             return candidate
         log_with_fields(logger, 30, "rewrite failed validation, retrying", attempt=attempt, candidate=candidate)
@@ -273,25 +305,53 @@ def extract_cast(cast_so_far: list[str], speaker: str) -> list[str]:
     return cast_so_far
 
 
+def build_scene_plans(lines: list[str], script_config: dict) -> list[ScenePlan]:
+    """Group the poem's lines into scenes. With planning disabled this is the
+    historical behaviour - one scene per source line - kept as an escape hatch
+    so a bad plan is one config flag away from the old pipeline."""
+    planning = script_config.get("scene_planning", {})
+    if not planning.get("enabled", True):
+        return [ScenePlan(text=line, line_indices=(i,), duration_s=estimate_duration(line))
+                for i, line in enumerate(lines)]
+    return plan_scenes(
+        lines,
+        estimate_duration,
+        target_scene_duration_s=planning.get("target_scene_duration_s", 4.0),
+        min_scenes=planning.get("min_scenes", 1),
+        max_scenes=planning.get("max_scenes", 16),
+        max_words_per_scene=planning.get("max_words_per_scene", 14),
+    )
+
+
 def generate_script(rhyme_text: str, config: PipelineConfig | None = None) -> dict:
     config = config or load_config()
     lines = split_lines(rhyme_text)
     if not lines:
         raise ValueError("Source rhyme has no non-empty lines")
 
-    creative_rewrite = config.pipeline.get("script", {}).get("creative_rewrite", True)
+    script_config = config.pipeline.get("script", {})
+    creative_rewrite = script_config.get("creative_rewrite", True)
     if creative_rewrite:
-        lines = [rewrite_line_creatively(line, config.llm) for line in lines]
+        metre = target_metre(lines) if script_config.get("metre_rewrite", True) else None
+        if metre:
+            log_with_fields(logger, 20, "rewriting to poem metre", target_syllables=metre)
+        lines = [rewrite_line_creatively(line, config.llm, metre) for line in lines]
 
-    elaborate_enabled = config.pipeline.get("script", {}).get("elaborate_scene_description", True)
+    elaborate_enabled = script_config.get("elaborate_scene_description", True)
+
+    plans = build_scene_plans(lines, script_config)
+    scene_texts = [p.text for p in plans]
+    log_with_fields(logger, 20, "scenes planned", source_lines=len(lines), scenes=len(plans),
+                     durations_s=[p.duration_s for p in plans])
 
     annotations = []
     cast: list[str] = []
-    for i, line in enumerate(lines, start=1):
-        annotation = annotate_line(line, i, len(lines), cast, config.llm)
+    for i, text in enumerate(scene_texts, start=1):
+        annotation = annotate_line(text, i, len(scene_texts), cast, config.llm)
         cast = extract_cast(cast, annotation["speaker"])
         annotations.append(annotation)
-        log_with_fields(logger, 20, "line processed", line_index=i, total=len(lines), speaker=annotation["speaker"])
+        log_with_fields(logger, 20, "scene processed", scene_index=i, total=len(scene_texts),
+                         speaker=annotation["speaker"])
 
     fallback_descriptions = [
         a.get("scene_description") or "soft colorful picture-book setting, gentle pastel colors, simple shapes"
@@ -300,24 +360,30 @@ def generate_script(rhyme_text: str, config: PipelineConfig | None = None) -> di
 
     if elaborate_enabled:
         speakers = [a["speaker"] for a in annotations]
-        scene_descriptions = draft_elaborate_scene_descriptions(lines, speakers, config.llm, fallback_descriptions)
+        scene_descriptions = draft_elaborate_scene_descriptions(scene_texts, speakers, config.llm,
+                                                                 fallback_descriptions)
         log_with_fields(logger, 20, "elaborate scene descriptions drafted", count=len(scene_descriptions))
     else:
         scene_descriptions = fallback_descriptions
 
     scenes = [
         {
-            "line": line,
+            "line": plan.text,
             "speaker": annotation["speaker"],
             "stage_direction": annotation["stage_direction"],
             "scene_description": scene_description,
             "mood": annotation.get("mood") or "gentle and playful",
-            "duration_s": estimate_duration(line),
+            "duration_s": plan.duration_s,
         }
-        for line, annotation, scene_description in zip(lines, annotations, scene_descriptions)
+        for plan, annotation, scene_description in zip(plans, annotations, scene_descriptions)
     ]
 
-    assert len(scenes) == len(lines), "All source lines must be represented"
+    # Scenes no longer map 1:1 to lines, so the invariant is coverage rather
+    # than count: a line may span two scenes when it was long enough to split,
+    # but every source line must appear somewhere or the video silently drops
+    # part of the poem.
+    covered = [i for plan in plans for i in plan.line_indices]
+    assert sorted(set(covered)) == list(range(len(lines))), "Every source line must appear in a scene"
     return {"cast": cast, "scenes": scenes}
 
 
