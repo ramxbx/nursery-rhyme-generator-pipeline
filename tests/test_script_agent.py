@@ -94,20 +94,53 @@ def test_rewrite_line_creatively_falls_back_to_original_on_repeated_failure(monk
     assert result == line
 
 
-def test_generate_script_covers_all_source_lines(monkeypatch):
-    def fake_annotate(line_text, line_index, line_total, cast_so_far, llm_config):
-        return {"speaker": "Narrator", "stage_direction": "does something",
-                "scene_description": "a place", "mood": "calm"}
+def _fake_annotate(line_text, line_index, line_total, cast_so_far, llm_config):
+    return {"speaker": "Narrator", "stage_direction": "does something",
+            "scene_description": "a place", "mood": "calm"}
 
-    monkeypatch.setattr(sa, "rewrite_line_creatively", lambda line, cfg: line)
-    monkeypatch.setattr(sa, "annotate_line", fake_annotate)
 
+def _script_config(**overrides):
     class FakeConfig:
-        pipeline = {"script": {"creative_rewrite": True, "elaborate_scene_description": False}}
+        pipeline = {"script": {"creative_rewrite": True, "elaborate_scene_description": False, **overrides}}
         llm = {}
+    return FakeConfig
+
+
+def test_generate_script_covers_all_source_lines(monkeypatch):
+    """Scenes no longer map 1:1 to lines, so what must hold is that every word
+    of the poem still reaches the video exactly once, in order."""
+    monkeypatch.setattr(sa, "rewrite_line_creatively", lambda line, cfg, target=None: line)
+    monkeypatch.setattr(sa, "annotate_line", _fake_annotate)
 
     rhyme = "Line one,\nLine two.\nLine three."
-    result = sa.generate_script(rhyme, FakeConfig())
-    assert len(result["scenes"]) == 3
+    result = sa.generate_script(rhyme, _script_config())
+    assert len(result["scenes"]) >= 1
+    assert " ".join(s["line"] for s in result["scenes"]) == "Line one, Line two. Line three."
+    assert all(s["duration_s"] > 0 for s in result["scenes"])
+
+
+def test_generate_script_keeps_one_scene_per_line_when_planning_disabled(monkeypatch):
+    """The config escape hatch has to reproduce the pre-planner pipeline
+    exactly, so a bad plan is one flag away from the old behaviour."""
+    monkeypatch.setattr(sa, "rewrite_line_creatively", lambda line, cfg, target=None: line)
+    monkeypatch.setattr(sa, "annotate_line", _fake_annotate)
+
+    rhyme = "Line one,\nLine two.\nLine three."
+    result = sa.generate_script(rhyme, _script_config(scene_planning={"enabled": False}))
     assert [s["line"] for s in result["scenes"]] == ["Line one,", "Line two.", "Line three."]
-    assert all("duration_s" in s and s["duration_s"] > 0 for s in result["scenes"])
+
+
+def test_target_metre_is_the_median_line_length():
+    """Median rather than mean so one runaway line cannot drag the whole
+    poem's metre out with it."""
+    lines = ["Twinkle, twinkle, little star,", "How I wonder what you are.",
+             "an enormously long and rambling line that goes on and on and on"]
+    assert sa.target_metre(lines) == sa.count_line_syllables("How I wonder what you are.")
+
+
+def test_rewrite_rejects_a_candidate_that_breaks_the_metre():
+    """A line that does not fit the beat cannot be sung to the same tune as its
+    neighbours, however well-worded it is."""
+    original = "Twinkle, twinkle, little star,"
+    assert sa._candidate_is_valid("Shining, shining, little star", "star", original, target_syllables=7)
+    assert not sa._candidate_is_valid("Star", "star", original, target_syllables=7)

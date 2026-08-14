@@ -104,7 +104,10 @@ def assemble_video(images_manifest: list[dict], audio_manifest: list[dict],
             music_path = tmp_dir / "background_music.wav"
             sf.write(music_path, music, sample_rate, subtype="PCM_16")
             with_music_path = tmp_dir / "with_music.mp4"
-            mix_background_music(merged_path, music_path, with_music_path, music_config.get("volume", 0.18))
+            mix_background_music(merged_path, music_path, with_music_path,
+                                  music_config.get("volume", 0.18), duck=music_config.get("duck", True),
+                                  # the narration's rate, not the music's - MusicGen emits 32kHz
+                                  sample_rate=config.tts.get("sample_rate", 48000))
             log_with_fields(logger, 20, "background music mixed", duration_s=round(float(total_duration), 2))
         else:
             with_music_path = merged_path

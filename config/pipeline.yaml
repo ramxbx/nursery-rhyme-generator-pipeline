@@ -8,12 +8,20 @@ paths:
 
 script:
   creative_rewrite: true
+  metre_rewrite: true          # rewrite lines to a shared syllable count so they sing to one melody
   elaborate_scene_description: true
+  scene_planning:
+    enabled: true              # false restores one scene per source line
+    target_scene_duration_s: 4.0   # lower -> more, shorter scenes (more images)
+    min_scenes: 1
+    max_scenes: 16
+    max_words_per_scene: 14    # beyond this the subtitle wraps over the picture
 
 music:
   enabled: true
   backend: musicgen  # musicgen | procedural
-  volume: 0.4
+  volume: 0.15   # music is now ducked under the voice and no longer halved by amix, so it needs far less
+  duck: true     # push the music down while a word is sung, let it swell back between lines
   prompt: "cheerful children's nursery rhyme background music, xylophone and ukulele, playful, gentle, major key"
 
 subtitles:

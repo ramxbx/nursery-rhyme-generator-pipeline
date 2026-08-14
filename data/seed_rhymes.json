@@ -1,0 +1,14 @@
+[
+  {"title": "Twinkle, Twinkle, Little Star", "subject": "a small bright star", "setting": "the night sky above a sleeping village", "mood": "calm and wondering"},
+  {"title": "Baa, Baa, Black Sheep", "subject": "a woolly sheep", "setting": "a green farm meadow", "mood": "friendly and busy"},
+  {"title": "Hey Diddle Diddle", "subject": "a leaping cow", "setting": "a moonlit farmyard", "mood": "silly and playful"},
+  {"title": "Humpty Dumpty", "subject": "a round egg character", "setting": "an old stone wall in a village", "mood": "dramatic but gentle"},
+  {"title": "Mary Had a Little Lamb", "subject": "a small white lamb", "setting": "a country lane and a schoolhouse", "mood": "warm and devoted"},
+  {"title": "The Itsy Bitsy Spider", "subject": "a tiny spider", "setting": "a garden waterspout in the rain", "mood": "determined and cheerful"},
+  {"title": "Little Bo-Peep", "subject": "a shepherd girl", "setting": "rolling green hills", "mood": "searching and hopeful"},
+  {"title": "Old MacDonald Had a Farm", "subject": "a farm animal", "setting": "a busy barnyard", "mood": "noisy and joyful"},
+  {"title": "Row, Row, Row Your Boat", "subject": "a little wooden boat", "setting": "a gentle stream", "mood": "dreamy and rhythmic"},
+  {"title": "Five Little Ducks", "subject": "a mother duck and ducklings", "setting": "a pond over the hill", "mood": "adventurous and tender"},
+  {"title": "Jack and Jill", "subject": "two children with a pail", "setting": "a steep hill with a well", "mood": "eventful and brisk"},
+  {"title": "Hickory Dickory Dock", "subject": "a small mouse", "setting": "a tall grandfather clock", "mood": "quick and comic"}
+]

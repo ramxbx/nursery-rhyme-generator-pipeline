@@ -82,14 +82,60 @@ def build_scene_clip(image_path: Path, audio_path: Path, duration_s: float,
     return out_path
 
 
-def mix_background_music(video_path: Path, music_path: Path, out_path: Path, music_volume: float = 0.18) -> Path:
+# How far the music is pushed down while a word is being sung. 6dB is enough
+# to open a clear space for the voice without the music audibly pumping.
+MUSIC_DUCK_RATIO = 8
+MUSIC_DUCK_THRESHOLD = 0.05
+# Slow release so the music swells back between lines rather than fluttering
+# under every syllable.
+MUSIC_DUCK_ATTACK_MS = 20
+MUSIC_DUCK_RELEASE_MS = 300
+# Streaming-standard programme loudness. The pipeline used to hand back a
+# ~-32 dBFS file that needed the volume slider at maximum to hear.
+TARGET_LUFS = -16
+TARGET_TRUE_PEAK = -1.5
+
+
+def mix_background_music(video_path: Path, music_path: Path, out_path: Path, music_volume: float = 0.18,
+                          duck: bool = True, sample_rate: int = 48000) -> Path:
     """Mix a background music track under an existing video's narration
     audio, matching the narration's duration exactly. Video stream is
-    copied (not re-encoded) - only the audio is touched."""
-    filter_complex = (
-        f"[1:a]volume={music_volume}[bg];"
-        f"[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0[a]"
-    )
+    copied (not re-encoded) - only the audio is touched.
+
+    Three things here exist to keep the words intelligible for a child, which
+    a plain amix does not deliver:
+
+    * `normalize=0` on amix. By default amix divides every input by the number
+      of inputs, so simply having a music track present cost the voice 6dB -
+      the single biggest reason the lyrics were hard to make out.
+    * Sidechain ducking. The music is compressed by the voice, so it steps back
+      whenever a word is sung and returns in the gaps. Constant background
+      music at a level low enough never to cover the voice is too quiet to be
+      worth having; ducking lets it be present AND out of the way.
+    * loudnorm to a standard programme loudness, so the finished video plays at
+      the same volume as anything else the child watches. It is followed by an
+      explicit aresample because loudnorm runs its analysis at 192kHz and emits
+      at that rate - without pinning it back, the output stream silently
+      changes sample rate.
+    """
+    if duck:
+        # The voice feeds both the mix and the compressor's sidechain, so it has
+        # to be split - an ffmpeg input cannot be consumed twice.
+        chain = (
+            f"[1:a]volume={music_volume}[bg];"
+            f"[0:a]asplit=2[voice][key];"
+            f"[bg][key]sidechaincompress=threshold={MUSIC_DUCK_THRESHOLD}:ratio={MUSIC_DUCK_RATIO}"
+            f":attack={MUSIC_DUCK_ATTACK_MS}:release={MUSIC_DUCK_RELEASE_MS}[bgducked];"
+            f"[voice][bgducked]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mixed];"
+        )
+    else:
+        chain = (
+            f"[1:a]volume={music_volume}[bg];"
+            f"[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[mixed];"
+        )
+    filter_complex = (chain +
+                       f"[mixed]loudnorm=I={TARGET_LUFS}:TP={TARGET_TRUE_PEAK}:LRA=11,"
+                       f"aresample={sample_rate}[a]")
     args = [
         ffmpeg_path(), "-y",
         "-i", str(video_path), "-i", str(music_path),

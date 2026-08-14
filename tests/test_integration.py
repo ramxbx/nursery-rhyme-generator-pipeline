@@ -33,3 +33,25 @@ def test_full_pipeline_produces_a_playable_video():
     assert video_streams and video_streams[0]["codec_name"] == "h264"
     assert audio_streams
     assert float(info["format"]["duration"]) > 0
+
+
+def test_stale_manifest_from_a_different_run_is_not_reused(tmp_path):
+    """Per-scene manifests are not namespaced by run name, so a 16-scene run
+    followed by a 4-scene one used to fail with "manifest has 16 entries,
+    expected 4" and no way forward but deleting files by hand."""
+    from src.orchestration import manifest_is_current
+    from src.utils.file_manager import safe_write_json
+
+    path = tmp_path / "manifest.json"
+    safe_write_json(path, [{"scene_index": i} for i in range(16)])
+    assert not manifest_is_current(path, 4)
+    assert manifest_is_current(path, 16)
+    assert not manifest_is_current(tmp_path / "missing.json", 4)
+
+
+def test_corrupt_manifest_is_treated_as_stale(tmp_path):
+    from src.orchestration import manifest_is_current
+
+    path = tmp_path / "manifest.json"
+    path.write_text("{not json", encoding="utf-8")
+    assert not manifest_is_current(path, 4)

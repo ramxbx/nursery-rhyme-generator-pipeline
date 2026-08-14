@@ -45,20 +45,86 @@ def resample_linear(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarr
     return np.interp(target_t, orig_t, audio).astype(np.float32)
 
 
-def synthesize_line_bark(bark, text: str, tts_config: dict) -> np.ndarray | None:
+# Scene clips are joined with an audio crossfade (CROSSFADE_S in
+# animate_agent), which blends the tail of one scene into the head of the next.
+# Without a silent tail to absorb that blend, the crossfade overlaps real
+# singing from adjacent scenes and you hear two lines at once. Piper output
+# used to be padded out to the script's duration estimate, which hid this;
+# Bark output is not padded and is actively trimmed of trailing silence, so
+# the overlap became audible. Every clip now ends with enough silence to
+# cover the crossfade regardless of backend.
+TAIL_SILENCE_S = 0.6
+
+# The other half of the scene-length band whose ceiling lives in bark_tts
+# (MAX_DURATION_RATIO). Bark comes in short as often as it runs long - one take
+# sang a 4.55s line in 2.2s - and a scene that brief flashes its image past
+# before a child has looked at it. Unlike an over-long take, a short one is
+# repairable without regenerating: background music runs underneath the whole
+# video, so holding the image a little longer reads as a musical beat rather
+# than dead air. Short scenes are therefore padded up to this fraction of the
+# script's estimate at zero generation cost, which is why the floor is enforced
+# here and the ceiling is enforced by retrying in bark_tts.
+MIN_DURATION_RATIO = 0.6
+
+
+# Bark returns whatever level it feels like - measured peaks across one poem
+# ranged 0.30 to 0.45, i.e. lines differing in loudness by ~3.6dB, with 7dB of
+# headroom left unused on the loudest of them. Nothing downstream made that up,
+# so the finished video came out around -32 dBFS with the words barely audible
+# under the music. Every line is therefore normalised to a common loudness
+# here, which both lifts the voice and stops it jumping in level scene to
+# scene. RMS rather than peak, because peak-matching leaves a line with one
+# loud consonant quieter than its neighbours all the way through.
+TARGET_VOICE_RMS = 0.126   # about -18 dBFS
+# Hard ceiling so the gain can never clip. Voice has a high crest factor
+# (~16dB), so this rarely binds - when it does, the line just lands a little
+# under the target rather than distorting.
+VOICE_PEAK_CEILING = 0.97
+# Samples quieter than this are treated as silence and left out of the loudness
+# measurement - otherwise the padded tail drags the average down and the gain
+# overshoots.
+VOICE_FLOOR = 0.01
+
+
+def normalize_voice_level(audio: np.ndarray) -> np.ndarray:
+    """Bring one line up to a common loudness without clipping it."""
+    voiced = audio[np.abs(audio) > VOICE_FLOOR]
+    if len(voiced) == 0:
+        return audio
+    rms = float(np.sqrt(np.mean(voiced ** 2)))
+    peak = float(np.abs(audio).max())
+    if rms <= 0 or peak <= 0:
+        return audio
+    gain = min(TARGET_VOICE_RMS / rms, VOICE_PEAK_CEILING / peak)
+    return (audio * gain).astype(np.float32)
+
+
+def _pad_tail(audio: np.ndarray, sr: int, target_duration_s: float | None = None) -> np.ndarray:
+    """Trailing silence: enough to absorb the scene crossfade, plus enough to
+    bring a short take up to the floor of the scene-length band."""
+    if target_duration_s:
+        floor_samples = int(sr * target_duration_s * MIN_DURATION_RATIO)
+        if len(audio) < floor_samples:
+            audio = np.concatenate([audio, np.zeros(floor_samples - len(audio), dtype=np.float32)])
+    return np.concatenate([audio, np.zeros(int(sr * TAIL_SILENCE_S), dtype=np.float32)])
+
+
+def synthesize_line_bark(bark, text: str, tts_config: dict,
+                          target_duration_s: float | None = None) -> np.ndarray | None:
     """Sung audio for one line via Bark, resampled to the pipeline rate.
 
-    Deliberately does NOT pad or trim to the script's duration estimate: Bark
-    chooses its own phrasing and tempo, so forcing it to a predicted length
-    would either cut a line off mid-word or leave dead air. Scene and subtitle
-    timing follow the real audio length instead (see generate_audio).
+    target_duration_s is the script's syllable-based estimate. It is used only
+    as an upper bound to reject takes that ramble well past the lyric - Bark is
+    never stretched or trimmed to hit it exactly, since forcing its self-chosen
+    phrasing to a predicted length would cut words off or leave dead air. Scene
+    and subtitle timing follow the real audio length (see generate_audio).
 
     Returns None when Bark returns an unusable take, so the caller can fall
     back to Piper rather than shipping a silent scene."""
     from src.utils.bark_tts import BARK_SAMPLE_RATE, DEFAULT_VOICE_PRESET, sing_line
 
     preset = tts_config.get("bark_voice_preset") or DEFAULT_VOICE_PRESET
-    audio = sing_line(bark, text, preset)
+    audio = sing_line(bark, text, preset, target_duration_s=target_duration_s)
     if audio is None:
         return None
     return resample_linear(audio, BARK_SAMPLE_RATE, tts_config.get("sample_rate", 48000))
@@ -126,7 +192,7 @@ def generate_audio(script: dict, config: PipelineConfig) -> list[dict]:
     for i, scene in enumerate(script["scenes"], start=1):
         audio, source = None, "piper"
         if use_bark:
-            audio = synthesize_line_bark(bark, scene["line"], config.tts)
+            audio = synthesize_line_bark(bark, scene["line"], config.tts, scene["duration_s"])
             if audio is None:
                 log_with_fields(logger, 30, "bark take unusable, falling back to piper", scene_index=i)
             else:
@@ -135,6 +201,9 @@ def generate_audio(script: dict, config: PipelineConfig) -> list[dict]:
             audio, melody_offset = synthesize_line(
                 voice, scene["line"], scene["duration_s"], config.tts, melody_offset)
 
+        # Level first, then padding - normalising after would measure the
+        # silence we just added.
+        audio = _pad_tail(normalize_voice_level(audio), sample_rate, scene["duration_s"])
         out_path = scene_path(dirs["audio_dir"], i, ".wav")
         sf.write(out_path, audio, sample_rate, subtype="PCM_16")
 

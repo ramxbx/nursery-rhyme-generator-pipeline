@@ -46,6 +46,24 @@ MIN_PEAK_AMPLITUDE = 0.02
 # Bark commonly pads a line with several seconds of trailing near-silence or
 # breath noise; anything quieter than this fraction of the peak is trimmed.
 TRIM_THRESHOLD = 0.02
+# Bark has no duration control and will sometimes carry on well past the lyric
+# - one run produced 12s for a line the script estimated at ~4s, while an
+# identical earlier run produced 2.3s. Scene length follows audio length, so an
+# over-long take leaves one image parked on screen while the rest of the poem
+# flicks past. Takes longer than this multiple of the script's (syllable-based)
+# estimate are rejected and regenerated; because generation is non-deterministic
+# a retry usually lands in range.
+#
+# Started at 2.0, which proved far too loose to deliver even scenes: a measured
+# run passed every take yet still spanned 0.48x-1.89x of estimate, a 3.3x spread
+# between the shortest and longest scene. 1.4 is the ceiling half of a
+# [0.6x, 1.4x] acceptance band; the floor is handled for free by padding in
+# audio_agent (see MIN_DURATION_RATIO there) rather than by regenerating,
+# because a short take can be extended but a long one cannot be shortened.
+MAX_DURATION_RATIO = 1.4
+# Rejecting is only worth so much: each attempt is minutes of compute, so after
+# this many the line falls back to Piper, which is fast and length-predictable.
+MAX_TAKES = 3
 
 
 def build_bark() -> tuple:
@@ -138,11 +156,9 @@ def normalize_pitch(audio: np.ndarray, sr: int, target_hz: float = TARGET_TONIC_
     return shifted.astype(np.float32)
 
 
-def sing_line(bark, text: str, voice_preset: str = DEFAULT_VOICE_PRESET) -> np.ndarray | None:
-    """Generate sung audio for one line, at BARK_SAMPLE_RATE.
-
-    Returns None if the take is unusable, leaving the caller to fall back to
-    the speech backend rather than shipping silence."""
+def _generate_take(bark, text: str, voice_preset: str) -> np.ndarray | None:
+    """One Bark generation. Returns None if the take is structurally unusable
+    (empty, or near-silence, both of which Bark produces occasionally)."""
     import torch
 
     model, processor = bark
@@ -158,4 +174,43 @@ def sing_line(bark, text: str, voice_preset: str = DEFAULT_VOICE_PRESET) -> np.n
         return None
     if float(np.abs(audio).max()) < MIN_PEAK_AMPLITUDE:
         return None
-    return normalize_pitch(_trim_silence(audio), BARK_SAMPLE_RATE)
+    return _trim_silence(audio)
+
+
+def sing_line(bark, text: str, voice_preset: str = DEFAULT_VOICE_PRESET,
+              target_duration_s: float | None = None) -> np.ndarray | None:
+    """Generate sung audio for one line, at BARK_SAMPLE_RATE.
+
+    Retries when a take runs far longer than target_duration_s (the script's
+    syllable-based estimate for the line). Bark has no duration control and
+    will sometimes keep going past the lyric; since scene length follows audio
+    length, an over-long take parks one image on screen while the rest of the
+    poem races past. Generation is non-deterministic, so simply asking again
+    usually produces something in range.
+
+    The best over-long take is kept as a last resort rather than discarded, so
+    an unlucky run degrades to "a bit long" instead of falling back to speech.
+    Returns None only when no take was usable at all."""
+    best = None
+    for attempt in range(1, MAX_TAKES + 1):
+        audio = _generate_take(bark, text, voice_preset)
+        if audio is None:
+            log_with_fields(logger, 30, "bark take unusable, retrying", attempt=attempt)
+            continue
+
+        duration = len(audio) / BARK_SAMPLE_RATE
+        if target_duration_s is None or duration <= target_duration_s * MAX_DURATION_RATIO:
+            return normalize_pitch(audio, BARK_SAMPLE_RATE)
+
+        # Too long - keep it only if it is the shortest over-long take so far.
+        if best is None or len(audio) < len(best):
+            best = audio
+        log_with_fields(logger, 30, "bark take too long, retrying", attempt=attempt,
+                         duration_s=round(duration, 2), target_s=round(target_duration_s, 2),
+                         limit_s=round(target_duration_s * MAX_DURATION_RATIO, 2))
+
+    if best is None:
+        return None
+    log_with_fields(logger, 30, "bark takes all over-long, keeping shortest",
+                     duration_s=round(len(best) / BARK_SAMPLE_RATE, 2))
+    return normalize_pitch(best, BARK_SAMPLE_RATE)
