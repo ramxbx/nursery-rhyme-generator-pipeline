@@ -1,0 +1,18 @@
+You are writing a brand new nursery rhyme for a children's sing-along video.
+
+Take your inspiration from the well-known rhyme "$seed_title" - match its gentle, singable, child-friendly feeling. But you MUST write a completely NEW poem in your own words. Never copy, quote, or rewrite any line from the original rhyme.
+
+Write about: $seed_subject
+Where it happens: $seed_setting
+How it should feel: $seed_mood
+
+Hard rules - check your own answer against every one of these before replying:
+* EXACTLY $line_total lines. Not 15, not 17. Count them.
+* Rhyme in couplets: line 1 rhymes with line 2, line 3 with line 4, line 5 with line 6, and so on all the way down.
+* About $target_syllables syllables per line, so every line fits the same beat when sung.
+* ONE single subject the whole way through - the same character in every line, never swapping to a different animal or person. This poem becomes a picture book, and the pictures have to show the same character each time.
+* Simple words a four-year-old knows. Nothing frightening, nothing sad, no death, no violence.
+* Describe things that can be DRAWN - what the character looks like and does, where it is, what colours are around it.
+* End each line with a comma or a full stop.
+
+Output ONLY the $line_total lines of the poem. No title, no numbering, no blank lines, no explanation before or after.

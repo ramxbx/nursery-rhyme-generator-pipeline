@@ -64,12 +64,45 @@ def validate_script(path: Path) -> dict:
     return data
 
 
+def manifest_is_current(path: Path, expected_scenes: int) -> bool:
+    """Whether a cached manifest can be reused for the current script.
+
+    Per-scene manifests are not namespaced by run name, so a manifest left by a
+    previous rhyme with a different scene count would otherwise be silently
+    reused - the resume check only asked whether the file existed. A 16-scene
+    run followed by a 4-scene one then failed validation with "manifest has 16
+    entries, expected 4" and no way forward short of deleting files by hand.
+    Treating a count mismatch as stale makes resume safe across runs."""
+    if not path.exists():
+        return False
+    try:
+        return len(read_json(path)) == expected_scenes
+    except (ValueError, OSError):
+        return False  # unreadable/corrupt cache is stale by definition
+
+
 def validate_manifest(path: Path, expected_scenes: int, stage_name: str) -> None:
     if not path.exists():
         raise StageError(f"{stage_name} manifest missing: {path}")
     data = read_json(path)
     if len(data) != expected_scenes:
         raise StageError(f"{stage_name} manifest has {len(data)} entries, expected {expected_scenes}: {path}")
+
+
+def generate_input_rhyme(config, seed: str | None = None) -> Path:
+    """Stage 0: write the poem the rest of the run is built from.
+
+    Kept in-process rather than a subprocess like the other stages - it touches
+    no GPU, so the isolation those need does not apply, and the caller needs the
+    chosen filename back to name every downstream artefact."""
+    from src.agents.rhyme_agent import generate_rhyme
+
+    name, text, generated = generate_rhyme(config, seed)
+    path = Path(config.paths["data_dir"]) / f"{name}.txt"
+    path.write_text(text, encoding="utf-8")
+    log_with_fields(logger, 20, "rhyme stage complete", path=str(path), generated=generated,
+                     lines=len(text.strip().splitlines()))
+    return path
 
 
 def run_pipeline(input_path: Path, name: str | None = None, force: bool = False) -> Path:
@@ -94,17 +127,17 @@ def run_pipeline(input_path: Path, name: str | None = None, force: bool = False)
     n_scenes = len(script["scenes"])
 
     # Stage 2: visual (GPU - only stage allowed to touch it, isolated subprocess)
-    if force or not images_manifest.exists():
+    if force or not manifest_is_current(images_manifest, n_scenes):
         run_stage("src.agents.visual_agent", [str(script_path), "--out", str(images_manifest)], "visual")
     else:
-        log_with_fields(logger, 20, "skipping visual stage, output exists", path=str(images_manifest))
+        log_with_fields(logger, 20, "skipping visual stage, output is current", path=str(images_manifest))
     validate_manifest(images_manifest, n_scenes, "visual")
 
     # Stage 3: audio (CPU)
-    if force or not audio_manifest.exists():
+    if force or not manifest_is_current(audio_manifest, n_scenes):
         run_stage("src.agents.audio_agent", [str(script_path), "--out", str(audio_manifest)], "audio")
     else:
-        log_with_fields(logger, 20, "skipping audio stage, output exists", path=str(audio_manifest))
+        log_with_fields(logger, 20, "skipping audio stage, output is current", path=str(audio_manifest))
     validate_manifest(audio_manifest, n_scenes, "audio")
 
     # Stage 4: animate/assembly (CPU, ffmpeg) - always re-run, cheap relative to the others
@@ -127,13 +160,27 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Run the full nursery-rhyme pipeline end-to-end (script -> visual -> audio -> animate). "
                     "YouTube upload is a separate manual step - see GPT-14.")
-    parser.add_argument("input", type=Path, help="Path to a text file containing the rhyme")
+    parser.add_argument("input", type=Path, nargs="?", default=None,
+                        help="Path to a text file containing the rhyme (omit with --generate)")
+    parser.add_argument("--generate", action="store_true",
+                        help="Write a new 16-line rhyme first instead of reading one from a file")
+    parser.add_argument("--seed", default=None,
+                        help="With --generate, take inspiration from this seed rhyme title")
     parser.add_argument("--name", default=None, help="Base name for output files (default: input filename stem)")
     parser.add_argument("--force", action="store_true", help="Re-run every stage even if outputs already exist")
     args = parser.parse_args()
 
+    if not args.generate and args.input is None:
+        parser.error("provide an input file, or pass --generate to write a new rhyme")
+
     try:
-        output = run_pipeline(args.input, args.name, args.force)
+        input_path = args.input
+        if args.generate:
+            input_path = generate_input_rhyme(load_config(), args.seed)
+            print(f"Generated rhyme: {input_path}")
+        # A generated run names its outputs after the poem, so a new rhyme never
+        # silently reuses the previous run's cached scenes.
+        output = run_pipeline(input_path, args.name, args.force or args.generate)
     except StageError as e:
         logger.error(f"Pipeline failed: {e}")
         sys.exit(1)
