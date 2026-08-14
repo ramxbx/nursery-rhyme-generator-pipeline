@@ -49,3 +49,23 @@ video:
 gpu:
   single_stage_at_a_time: true
   image_stage_device: cuda
+
+visual:
+  # Both OFF. Character identity was attempted twice and neither tier delivered:
+  #
+  # Tier 1 (character_bank) - a canonical descriptor injected into every prompt.
+  #   Verified present in all four prompts of a test run and absent from all four
+  #   images. Text conditioning holds species, colour and build; it does not
+  #   enforce accessories or markings on SD1.5 at all.
+  # Tier 2 (ip_adapter) - conditioning on a reference portrait. Cost three runs
+  #   to integration bugs (hires pass not passing image embeds, reference key
+  #   derived from the wrong string, image encoder unhooked from CPU offload) and
+  #   never produced a comparable image, so it remains untested rather than
+  #   disproven.
+  #
+  # The code and tests stay so either can be revisited (GPT-36/GPT-37); flipping
+  # these back to true is all that is needed. Image generation otherwise keeps
+  # the changes that DID work: varied framing per scene and the hires pass.
+  character_bank: false
+  ip_adapter: false
+  ip_adapter_scale: 0.5

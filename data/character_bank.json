@@ -1,0 +1,63 @@
+{
+  "boy": {
+    "build": "young",
+    "colour": "",
+    "features": [
+      "curly brown hair",
+      "round glasses"
+    ],
+    "seed": 811224467,
+    "subject": "boy",
+    "wearing": "a red striped shirt"
+  },
+  "cat": {
+    "build": "slim",
+    "colour": "ginger",
+    "features": [
+      "white chest patch"
+    ],
+    "seed": 1904553318,
+    "subject": "cat",
+    "wearing": "a small brass bell"
+  },
+  "girl": {
+    "build": "young",
+    "colour": "",
+    "features": [
+      "black hair in two braids"
+    ],
+    "seed": 233470915,
+    "subject": "girl",
+    "wearing": "a yellow pinafore"
+  },
+  "pig": {
+    "build": "small round",
+    "colour": "pink",
+    "features": [
+      "dark spot on left flank"
+    ],
+    "seed": 2508466972,
+    "subject": "pig",
+    "wearing": "a blue neckerchief"
+  },
+  "sheep": {
+    "build": "plump",
+    "colour": "cream",
+    "features": [
+      "black face and legs"
+    ],
+    "seed": 1442097783,
+    "subject": "sheep",
+    "wearing": "a red collar"
+  },
+  "turtle": {
+    "build": "small",
+    "colour": "green",
+    "features": [
+      "yellow spots on shell"
+    ],
+    "seed": 640228105,
+    "subject": "turtle",
+    "wearing": "a tiny straw hat"
+  }
+}
