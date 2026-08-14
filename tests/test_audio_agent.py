@@ -96,6 +96,21 @@ def test_generate_audio_falls_back_to_piper_when_bark_take_unusable(monkeypatch,
     assert manifest[0]["actual_duration_s"] > 0
 
 
+def test_short_take_is_padded_up_to_the_scene_floor():
+    """A 2s take on a 5s line flashes its image past before a child has looked
+    at it. Padding costs nothing - the background music carries the gap."""
+    audio = np.ones(48000, dtype=np.float32)  # 1s at 48kHz, target 5s
+    padded = aa._pad_tail(audio, 48000, target_duration_s=5.0)
+    sung_and_floor = 5.0 * aa.MIN_DURATION_RATIO
+    assert abs(len(padded) / 48000 - (sung_and_floor + aa.TAIL_SILENCE_S)) < 0.01
+
+
+def test_take_already_past_the_floor_only_gets_the_crossfade_tail():
+    audio = np.ones(48000 * 4, dtype=np.float32)  # 4s, well past 0.6 * 5s
+    padded = aa._pad_tail(audio, 48000, target_duration_s=5.0)
+    assert abs(len(padded) / 48000 - (4.0 + aa.TAIL_SILENCE_S)) < 0.01
+
+
 class FakeBarkTakes:
     """Returns a scripted sequence of take lengths (seconds) so retry logic
     can be tested without running the real model."""

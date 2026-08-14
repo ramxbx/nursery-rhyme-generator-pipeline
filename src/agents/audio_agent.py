@@ -55,8 +55,57 @@ def resample_linear(audio: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarr
 # cover the crossfade regardless of backend.
 TAIL_SILENCE_S = 0.6
 
+# The other half of the scene-length band whose ceiling lives in bark_tts
+# (MAX_DURATION_RATIO). Bark comes in short as often as it runs long - one take
+# sang a 4.55s line in 2.2s - and a scene that brief flashes its image past
+# before a child has looked at it. Unlike an over-long take, a short one is
+# repairable without regenerating: background music runs underneath the whole
+# video, so holding the image a little longer reads as a musical beat rather
+# than dead air. Short scenes are therefore padded up to this fraction of the
+# script's estimate at zero generation cost, which is why the floor is enforced
+# here and the ceiling is enforced by retrying in bark_tts.
+MIN_DURATION_RATIO = 0.6
 
-def _pad_tail(audio: np.ndarray, sr: int) -> np.ndarray:
+
+# Bark returns whatever level it feels like - measured peaks across one poem
+# ranged 0.30 to 0.45, i.e. lines differing in loudness by ~3.6dB, with 7dB of
+# headroom left unused on the loudest of them. Nothing downstream made that up,
+# so the finished video came out around -32 dBFS with the words barely audible
+# under the music. Every line is therefore normalised to a common loudness
+# here, which both lifts the voice and stops it jumping in level scene to
+# scene. RMS rather than peak, because peak-matching leaves a line with one
+# loud consonant quieter than its neighbours all the way through.
+TARGET_VOICE_RMS = 0.126   # about -18 dBFS
+# Hard ceiling so the gain can never clip. Voice has a high crest factor
+# (~16dB), so this rarely binds - when it does, the line just lands a little
+# under the target rather than distorting.
+VOICE_PEAK_CEILING = 0.97
+# Samples quieter than this are treated as silence and left out of the loudness
+# measurement - otherwise the padded tail drags the average down and the gain
+# overshoots.
+VOICE_FLOOR = 0.01
+
+
+def normalize_voice_level(audio: np.ndarray) -> np.ndarray:
+    """Bring one line up to a common loudness without clipping it."""
+    voiced = audio[np.abs(audio) > VOICE_FLOOR]
+    if len(voiced) == 0:
+        return audio
+    rms = float(np.sqrt(np.mean(voiced ** 2)))
+    peak = float(np.abs(audio).max())
+    if rms <= 0 or peak <= 0:
+        return audio
+    gain = min(TARGET_VOICE_RMS / rms, VOICE_PEAK_CEILING / peak)
+    return (audio * gain).astype(np.float32)
+
+
+def _pad_tail(audio: np.ndarray, sr: int, target_duration_s: float | None = None) -> np.ndarray:
+    """Trailing silence: enough to absorb the scene crossfade, plus enough to
+    bring a short take up to the floor of the scene-length band."""
+    if target_duration_s:
+        floor_samples = int(sr * target_duration_s * MIN_DURATION_RATIO)
+        if len(audio) < floor_samples:
+            audio = np.concatenate([audio, np.zeros(floor_samples - len(audio), dtype=np.float32)])
     return np.concatenate([audio, np.zeros(int(sr * TAIL_SILENCE_S), dtype=np.float32)])
 
 
@@ -152,7 +201,9 @@ def generate_audio(script: dict, config: PipelineConfig) -> list[dict]:
             audio, melody_offset = synthesize_line(
                 voice, scene["line"], scene["duration_s"], config.tts, melody_offset)
 
-        audio = _pad_tail(audio, sample_rate)
+        # Level first, then padding - normalising after would measure the
+        # silence we just added.
+        audio = _pad_tail(normalize_voice_level(audio), sample_rate, scene["duration_s"])
         out_path = scene_path(dirs["audio_dir"], i, ".wav")
         sf.write(out_path, audio, sample_rate, subtype="PCM_16")
 
