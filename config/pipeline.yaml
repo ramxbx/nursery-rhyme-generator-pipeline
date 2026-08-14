@@ -66,6 +66,6 @@ visual:
   # The code and tests stay so either can be revisited (GPT-36/GPT-37); flipping
   # these back to true is all that is needed. Image generation otherwise keeps
   # the changes that DID work: varied framing per scene and the hires pass.
-  character_bank: false
-  ip_adapter: false
+  character_bank: true
+  ip_adapter: true
   ip_adapter_scale: 0.5

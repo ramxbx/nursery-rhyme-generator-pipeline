@@ -184,3 +184,19 @@ def test_reference_key_comes_from_the_scene_not_the_canonical_descriptor():
     canonical = "small round pink pig, wearing a blue neckerchief, dark spot on left flank"
     assert character_key(scene_subject) == "pig"
     assert character_key(canonical) == "flank", "documents why the key must not come from the descriptor"
+
+
+def test_reference_prompt_leads_with_the_subject_not_portrait_framing():
+    """The bug: the reference prompt led with "character reference portrait,
+    full body, standing, facing viewer" - all human-portrait cues - so asking
+    for "tiny spider" produced a boy in a brown jacket, which IP-Adapter then
+    propagated into every scene."""
+    for cue in ("character reference portrait", "standing", "facing viewer"):
+        assert cue not in va.REFERENCE_FRAMING, f"{cue!r} biases the reference toward a human"
+
+
+def test_reference_is_held_to_a_stricter_bar_than_a_scene():
+    """A wrong reference poisons every scene that character appears in, which is
+    far worse than one bad scene image."""
+    assert va.REFERENCE_CLIP_MIN > va.SHOTS["wide"].clip_good_enough
+    assert va.REFERENCE_CLIP_MIN >= va.CLIP_GOOD_ENOUGH

@@ -19,6 +19,7 @@ later during FFmpeg assembly (GPT-13), not here - see GPT-18/GPT-11 for why
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import hashlib
 import sys
 from dataclasses import dataclass
@@ -213,8 +214,23 @@ def generate_best_image(pipe, prompt: str, seed: int, sd_config: dict, clip_veri
     return best_image, pipe, best_score, CLIP_ATTEMPTS
 
 
-REFERENCE_PROMPT = ("modern disney style, cute children's cartoon, character reference portrait, "
-                     "full body, standing, facing viewer, plain white background, even lighting")
+# Framing words for the reference portrait, applied AFTER the character's own
+# descriptor rather than before it.
+#
+# The first version led with "character reference portrait, full body, standing,
+# facing viewer". Every one of those is a human-portrait cue, and leading with
+# them meant SD drew a human: asked for "tiny spider, dark brown" it produced a
+# boy in a brown jacket. IP-Adapter then propagated that boy into all six
+# scenes, faithfully - which is how we learned the conditioning works.
+#
+# So the subject leads, and the framing words that remain are species-neutral.
+REFERENCE_FRAMING = ("full body, centered, plain white background, even lighting, "
+                      "modern disney style, cute children's cartoon")
+# A wrong reference poisons every scene that character ever appears in, which is
+# far worse than one bad scene image. References are therefore held to a higher
+# CLIP bar than scenes, and a character with no acceptable reference is left
+# unconditioned rather than conditioned on something wrong.
+REFERENCE_CLIP_MIN = 0.28
 
 
 def ensure_reference(pipe, key: str, descriptor: str, seed: int, sd_config: dict,
@@ -233,10 +249,13 @@ def ensure_reference(pipe, key: str, descriptor: str, seed: int, sd_config: dict
     path = reference_path(key)
     if path.exists():
         return path
-    prompt = f"{REFERENCE_PROMPT}, {descriptor}"
+    prompt = f"{descriptor}, {REFERENCE_FRAMING}"
     image, pipe, score, attempts = generate_best_image(
-        pipe, prompt, seed, sd_config, clip_verifier, descriptor, CLIP_GOOD_ENOUGH)
-    if image is None:
+        pipe, prompt, seed, sd_config, clip_verifier, descriptor, REFERENCE_CLIP_MIN)
+    if image is None or score < REFERENCE_CLIP_MIN:
+        log_with_fields(logger, 30, "no acceptable reference, leaving character unconditioned",
+                         character=key, score=round(score, 4) if image is not None else None,
+                         bar=REFERENCE_CLIP_MIN)
         return None
     path.parent.mkdir(parents=True, exist_ok=True)
     image.save(path)
@@ -333,16 +352,25 @@ def generate_visuals(script: dict, config: PipelineConfig) -> list[dict]:
     if use_bank and visual_config.get("ip_adapter", True):
         from PIL import Image
 
-        for scene in script["scenes"]:
-            subject = _subject_of(scene)
-            key = character_key(subject)
-            if key in references:
-                continue
-            canonical, base_seed, _ = resolve_character(
-                bank, subject, seed_for_character(subject), scene.get("scene_description", ""))
-            path = ensure_reference(pipe, key, canonical, base_seed, config.sd, clip_verifier)
-            if path:
-                references[key] = Image.open(path).convert("RGB")
+        # One character per poem, not one per scene. The scene-description
+        # template establishes a single subject for the whole story, but the
+        # model still varies its wording - one run called the same character
+        # "tiny spider" in five scenes and "radiant arachnid" in the sixth,
+        # which registered two characters, generated two references, and
+        # conditioned the last scene on a different creature. The most common
+        # key across scenes is the poem's actual subject.
+        keys = [character_key(_subject_of(s)) for s in script["scenes"]]
+        main_key = Counter(keys).most_common(1)[0][0]
+        main_scene = next(s for s, k in zip(script["scenes"], keys) if k == main_key)
+        subject = _subject_of(main_scene)
+        canonical, base_seed, _ = resolve_character(
+            bank, subject, seed_for_character(subject), main_scene.get("scene_description", ""))
+        path = ensure_reference(pipe, main_key, canonical, base_seed, config.sd, clip_verifier)
+        if path:
+            # Every scene conditions on this one reference, whatever synonym its
+            # own description happened to use.
+            ref_image = Image.open(path).convert("RGB")
+            references = {k: ref_image for k in set(keys)}
         if references:
             ip_ready = enable_ip_adapter(pipe, visual_config.get("ip_adapter_scale", 0.5))
 
