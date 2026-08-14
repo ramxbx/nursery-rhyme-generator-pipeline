@@ -50,8 +50,47 @@ def probe(path: Path) -> dict:
     return json.loads(out)
 
 
+# Camera moves cycled across scenes. A single slow centre push repeated on every
+# scene reads as a stuck camera by the third one, and at zoom+0.0008 capped at
+# 1.15 it was barely visible anyway - a 3s clip only reached 1.06x. Three moves
+# against the four-shot framing cycle means the pairing does not repeat for
+# twelve scenes.
+#
+# Expressions are ffmpeg zoompan: `on` is the output frame number, `iw/ih` the
+# input size after scaling. Zoom is applied about a point that must be recomputed
+# per frame, which is why the x/y expressions reference zoom rather than being
+# constants.
+MOTIONS = ("push_in", "pan_right", "pull_out")
+ZOOM_MAX = 1.18          # far enough to read as movement, near enough to stay sharp
+PAN_ZOOM = 1.12          # panning needs headroom cropped in to have somewhere to go
+
+
+def motion_for_scene(scene_index: int) -> str:
+    """Camera move for a 1-based scene index. Deterministic, so a re-run frames
+    and moves identically."""
+    return MOTIONS[(scene_index - 1) % len(MOTIONS)]
+
+
+def _zoompan(motion: str, n_frames: int, width: int, height: int, fps: int) -> str:
+    centre_x, centre_y = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
+    if motion == "pull_out":
+        # Starts wide and settles in: zoom decreases toward 1.0 rather than away
+        # from it, so the frame opens up over the line.
+        step = (ZOOM_MAX - 1.0) / max(n_frames, 1)
+        z = f"'if(lte(on,1),{ZOOM_MAX},max(1.0,zoom-{step:.6f}))'"
+        return f"zoompan=z={z}:x='{centre_x}':y='{centre_y}':d=1:s={width}x{height}:fps={fps}"
+    if motion == "pan_right":
+        # Fixed zoom, horizontal drift across the cropped-in frame.
+        x = f"'(iw-iw/zoom)*on/{max(n_frames - 1, 1)}'"
+        return f"zoompan=z={PAN_ZOOM}:x={x}:y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps={fps}"
+    step = (ZOOM_MAX - 1.0) / max(n_frames, 1)
+    z = f"'min(zoom+{step:.6f},{ZOOM_MAX})'"
+    return f"zoompan=z={z}:x='{centre_x}':y='{centre_y}':d=1:s={width}x{height}:fps={fps}"
+
+
 def build_scene_clip(image_path: Path, audio_path: Path, duration_s: float,
-                      fps: int, width: int, height: int, out_path: Path) -> Path:
+                      fps: int, width: int, height: int, out_path: Path,
+                      motion: str = "push_in") -> Path:
     """Ken Burns pan/zoom on a static image, upscaled to (width, height),
     muxed with the scene's audio, trimmed to duration_s.
 
@@ -62,10 +101,12 @@ def build_scene_clip(image_path: Path, audio_path: Path, duration_s: float,
     (STYLE_ANCHOR in visual_agent.py), which is what makes a centre crop
     safe here."""
     n_frames = max(1, int(round(duration_s * fps)))
+    # Upscale generously before zoompan: it crops from the scaled input, so
+    # zooming a frame-sized image would magnify its own pixels and soften.
     zoompan = (
-        f"scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
-        f"crop={width}:{height},"
-        f"zoompan=z='min(zoom+0.0008,1.15)':d={n_frames}:s={width}x{height}:fps={fps}"
+        f"scale={width * 2}:{height * 2}:force_original_aspect_ratio=increase:flags=lanczos,"
+        f"crop={width * 2}:{height * 2},"
+        f"{_zoompan(motion, n_frames, width, height, fps)}"
     )
     args = [
         ffmpeg_path(), "-y",

@@ -54,3 +54,28 @@ def test_validate_output_passes_for_correct_stream_info(monkeypatch, tmp_path):
         ]
     })
     an._validate_output(tmp_path / "fake.mp4", 1920, 1080, 24)  # should not raise
+
+
+def test_camera_motion_varies_across_scenes():
+    """A single slow centre push on every scene reads as a stuck camera by the
+    third one."""
+    from src.utils.ffmpeg_helper import MOTIONS, motion_for_scene
+
+    moves = [motion_for_scene(i) for i in range(1, 10)]
+    assert len(set(moves)) == len(MOTIONS)
+    assert moves[0] != moves[1]
+
+
+def test_motion_cycle_does_not_align_with_the_shot_cycle():
+    """Three moves against four framings means the pairing takes twelve scenes
+    to repeat; equal cycles would pair the same move with the same shot forever."""
+    from src.utils.ffmpeg_helper import MOTIONS
+    from src.agents.visual_agent import SHOT_CYCLE
+
+    assert len(MOTIONS) != len(SHOT_CYCLE)
+
+
+def test_motion_assignment_is_deterministic():
+    from src.utils.ffmpeg_helper import motion_for_scene
+
+    assert [motion_for_scene(i) for i in range(1, 7)] == [motion_for_scene(i) for i in range(1, 7)]

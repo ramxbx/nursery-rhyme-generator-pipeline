@@ -20,7 +20,7 @@ import soundfile as sf
 from src.config import PipelineConfig, load_config
 from src.utils.ffmpeg_helper import (
     build_scene_clip, burn_subtitles, compute_scene_timeline, crossfade_concat,
-    mix_background_music, probe,
+    mix_background_music, motion_for_scene, probe,
 )
 from src.utils.file_manager import ensure_dirs, read_json
 from src.utils.logger import get_logger, log_with_fields
@@ -80,11 +80,13 @@ def assemble_video(images_manifest: list[dict], audio_manifest: list[dict],
             duration = audio_entry["actual_duration_s"]
 
             clip_path = tmp_dir / f"clip_{idx:03d}.mp4"
-            build_scene_clip(image_path, audio_path, duration, fps, width, height, clip_path)
+            motion = motion_for_scene(idx)
+            build_scene_clip(image_path, audio_path, duration, fps, width, height, clip_path, motion)
             clips.append(clip_path)
             durations.append(duration)
             lines.append(audio_entry.get("line", ""))
-            log_with_fields(logger, 20, "scene clip built", scene_index=idx, duration_s=duration)
+            log_with_fields(logger, 20, "scene clip built", scene_index=idx, duration_s=duration,
+                             motion=motion)
 
         merged_path = tmp_dir / "merged_no_music.mp4"
         crossfade_concat(clips, durations, fps, merged_path, crossfade_s=CROSSFADE_S)
