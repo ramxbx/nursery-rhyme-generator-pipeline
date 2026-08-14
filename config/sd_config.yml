@@ -18,7 +18,10 @@ guidance_scale: 7.0
 # checkpoint, whose native look IS 3D Disney-style rendering - including them
 # pushed output into a washed-out middle ground (distant, photographic-looking
 # scenes) instead of the appealing cartoon style the model does well (GPT-31).
-negative_prompt: "blurry, distorted, deformed, extra limbs, extra fingers, mutated, text, watermark, signature, ugly, low quality, scary, dark, grayscale"
+# The colour-cast terms are load-bearing: a strong colour word in the subject
+# descriptor (e.g. "rosy pink pig") tints the WHOLE frame, not just the
+# subject - measured at +40.9 magenta on a barn interior. These pull it back.
+negative_prompt: "blurry, distorted, deformed, extra limbs, extra fingers, mutated, text, watermark, signature, ugly, low quality, scary, dark, grayscale, pink tint, colour cast, monochrome, oversaturated"
 # SD1.5 is trained at 512x512; generating at a strongly non-square aspect is
 # off-distribution and was a direct cause of the duplicated/tiled-subject and
 # melted-composition failures chased in GPT-28 (GPT-32). Generate square, then
@@ -32,3 +35,14 @@ enable_model_cpu_offload: true
 enable_vae_slicing: true
 enable_vae_tiling: true
 attention_backend: sdpa
+
+# Hires fix (GPT-40): SD1.5 is trained at 512x512 and generating natively above
+# that produces the duplicated/tiled output seen in GPT-28, so resolution can't
+# simply be raised. Instead the selected 512 image is upscaled and re-rendered
+# at low denoise, which preserves the composition while adding detail the first
+# pass had no pixels for - a subject 60px tall in a wide shot cannot have eyes
+# at 512, but can at 768.
+hires_fix: true
+hires_scale: 1.5      # 512 -> 768
+hires_denoise: 0.4    # measured: hires adds only ~3 to the magenta index, the cast is from the base prompt
+hires_steps: 24

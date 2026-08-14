@@ -120,3 +120,24 @@ def test_generation_accepts_a_valid_poem_from_the_model(monkeypatch):
 def test_lines_far_off_the_metre_are_rejected(bad_line):
     lines, reason = ra.validate_poem(_poem([bad_line] + GOOD[1:]), SEED)
     assert not lines
+
+
+def test_a_shorter_poem_is_validated_against_its_own_length():
+    """End-to-end runs are gated on poem length - every line costs a Bark take
+    and an image - so a 6-line poem must not be judged as a failed 16-line one."""
+    six = GOOD[:6]
+    lines, reason = ra.validate_poem(_poem(six), SEED, line_total=6)
+    assert lines == six, reason
+
+
+def test_rhyme_requirement_scales_with_length():
+    """A 6-line poem has three couplets; demanding five would reject every
+    valid short poem."""
+    four = GOOD[:4]
+    lines, reason = ra.validate_poem(_poem(four), SEED, line_total=4)
+    assert lines == four, reason
+
+
+def test_default_length_is_unchanged():
+    lines, reason = ra.validate_poem(_poem(GOOD), SEED)
+    assert lines == GOOD, reason

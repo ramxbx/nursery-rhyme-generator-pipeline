@@ -10,3 +10,8 @@ data/audio/
 logs/*.log
 .env
 .claude/settings.local.json
+
+# Generated character reference portraits (see data/character_bank.json for
+# the curated entries that point at them). Regenerated on first sight.
+data/characters/
+data/images_noip/

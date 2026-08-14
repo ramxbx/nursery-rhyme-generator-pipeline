@@ -50,6 +50,9 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 SEED_PATH = REPO_ROOT / "data" / "seed_rhymes.json"
 FALLBACK_DIR = REPO_ROOT / "data" / "fallback_rhymes"
 
+# Default length. Overridable per run: a shorter poem is the practical choice
+# for end-to-end testing, since every line costs a Bark take (~1.5 min) and an
+# image (~2 min), so 16 lines is roughly an hour before anything can be judged.
 RHYME_LINES = 16
 TARGET_SYLLABLES = 8
 SYLLABLE_TOLERANCE = 4          # 4-12 syllables; wider than script_agent's rewrite
@@ -172,7 +175,8 @@ def _is_original(lines: list[str], seed: dict) -> bool:
     return True
 
 
-def validate_poem(text: str, seed: dict, check_originality: bool = True) -> tuple[list[str], str]:
+def validate_poem(text: str, seed: dict, check_originality: bool = True,
+                   line_total: int = RHYME_LINES) -> tuple[list[str], str]:
     """Returns (lines, "") when the poem is usable, or ([], reason) when not.
     All-or-nothing: a poem with the wrong number of lines cannot be trimmed
     into shape without breaking its couplets.
@@ -183,11 +187,11 @@ def validate_poem(text: str, seed: dict, check_originality: bool = True) -> tupl
     what the rest of this function tests."""
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     # Models like to introduce themselves; drop a leading title-ish line.
-    if len(lines) == RHYME_LINES + 1 and len(lines[0].split()) <= 6 and not lines[0].endswith((",", ".")):
+    if len(lines) == line_total + 1 and len(lines[0].split()) <= 6 and not lines[0].endswith((",", ".")):
         lines = lines[1:]
-    if len(lines) != RHYME_LINES:
-        return [], f"expected {RHYME_LINES} lines, got {len(lines)}"
-    if len({line.lower() for line in lines}) != RHYME_LINES:
+    if len(lines) != line_total:
+        return [], f"expected {line_total} lines, got {len(lines)}"
+    if len({line.lower() for line in lines}) != line_total:
         return [], "poem repeats a line"
     for line in lines:
         words = len(line.split())
@@ -197,8 +201,10 @@ def validate_poem(text: str, seed: dict, check_originality: bool = True) -> tupl
         if abs(syllables - TARGET_SYLLABLES) > SYLLABLE_TOLERANCE:
             return [], f"line has {syllables} syllables: {line!r}"
     rhyming = count_rhyming_couplets(lines)
-    if rhyming < MIN_RHYMING_COUPLETS:
-        return [], f"only {rhyming}/{RHYME_LINES // 2} couplets rhyme"
+    # Scaled to length so a short poem is not held to a 16-line poem's count.
+    needed = max(2, round(MIN_RHYMING_COUPLETS * line_total / RHYME_LINES))
+    if rhyming < needed:
+        return [], f"only {rhyming}/{line_total // 2} couplets rhyme"
     if check_originality and not _is_original(lines, seed):
         return [], "poem reproduces an existing rhyme"
     return lines, ""
@@ -220,7 +226,7 @@ def pick_fallback(rng: random.Random | None = None) -> tuple[str, str]:
 
 
 def generate_rhyme(config: PipelineConfig | None = None, seed_title: str | None = None,
-                    rng: random.Random | None = None) -> tuple[str, str, bool]:
+                    rng: random.Random | None = None, line_total: int = RHYME_LINES) -> tuple[str, str, bool]:
     """Write a new 16-line nursery rhyme.
 
     Returns (name, poem_text, generated) - `generated` is False when the poem
@@ -243,7 +249,7 @@ def generate_rhyme(config: PipelineConfig | None = None, seed_title: str | None 
 
     for attempt in range(1, GENERATE_RETRIES + 1):
         seed = rng.choice(seeds)
-        prompt = build_rhyme_prompt(seed, RHYME_LINES, TARGET_SYLLABLES)
+        prompt = build_rhyme_prompt(seed, line_total, TARGET_SYLLABLES)
         try:
             result = call_with_fallback(system_prompt=prompt,
                                          user_prompt="Write the poem now.",
@@ -253,7 +259,7 @@ def generate_rhyme(config: PipelineConfig | None = None, seed_title: str | None 
             log_with_fields(logger, 30, "rhyme generation call failed", attempt=attempt, error=str(e))
             continue
 
-        lines, reason = validate_poem(result.text.strip(), seed)
+        lines, reason = validate_poem(result.text.strip(), seed, line_total=line_total)
         if lines:
             log_with_fields(logger, 20, "rhyme generated", attempt=attempt, seed=seed["title"],
                              rhyming_couplets=count_rhyming_couplets(lines))
@@ -272,6 +278,8 @@ def main() -> None:
         description="Write a new 16-line nursery rhyme, inspired by a famous one but original.")
     parser.add_argument("--out", type=Path, default=None, help="Where to write the poem (default: data/<name>.txt)")
     parser.add_argument("--seed", default=None, help="Force a particular seed rhyme by title")
+    parser.add_argument("--lines", type=int, default=RHYME_LINES,
+                        help=f"How many lines to write (default {RHYME_LINES}; must be even)")
     parser.add_argument("--fallback-only", action="store_true",
                         help="Skip the model entirely and take a pre-written poem")
     args = parser.parse_args()
@@ -281,7 +289,7 @@ def main() -> None:
         name, text = pick_fallback()
         generated = False
     else:
-        name, text, generated = generate_rhyme(config, args.seed)
+        name, text, generated = generate_rhyme(config, args.seed, line_total=args.lines)
 
     out_path = args.out or (REPO_ROOT / "data" / f"{name}.txt")
     out_path.write_text(text, encoding="utf-8")

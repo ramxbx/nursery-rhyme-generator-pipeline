@@ -63,6 +63,59 @@ def build_pipeline(sd_config: dict) -> DiffusionPipeline:
     return pipe
 
 
+def build_img2img(pipe: DiffusionPipeline):
+    """An img2img pipeline sharing the txt2img pipeline's weights.
+
+    Built from `pipe.components`, so the UNet, VAE and text encoder already in
+    memory are reused - no second model load and no extra VRAM, which matters on
+    a 4GB card. Scheduler and offload settings carry over with them."""
+    from diffusers import StableDiffusionImg2ImgPipeline
+
+    return StableDiffusionImg2ImgPipeline(**pipe.components)
+
+
+IP_ADAPTER_REPO = "h94/IP-Adapter"
+IP_ADAPTER_WEIGHT = "ip-adapter_sd15.bin"
+
+
+def enable_ip_adapter(pipe: DiffusionPipeline, scale: float) -> bool:
+    """Attach IP-Adapter so generation can be conditioned on a reference image
+    as well as on text (GPT-37, Tier 2).
+
+    Text conditioning was measured to hold species and colour but nothing
+    specific: a pig's blue neckerchief and its dark flank spot were present in
+    every prompt of a four-scene run and absent from all four images. Image
+    conditioning is a different mechanism - the reference is encoded and
+    injected into the UNet's cross-attention, rather than competing for the
+    77 tokens the text encoder can read.
+
+    `scale` is the knob that matters. Too high and every scene collapses toward
+    the reference's pose and framing, which would undo the varied shot types;
+    too low and identity stops carrying. Returns False if the adapter could not
+    be loaded, so the caller can fall back to text-only rather than fail."""
+    try:
+        pipe.load_ip_adapter(IP_ADAPTER_REPO, subfolder="models", weight_name=IP_ADAPTER_WEIGHT)
+        pipe.set_ip_adapter_scale(scale)
+        # The adapter is loaded after enable_model_cpu_offload() has already
+        # wrapped the pipeline's components, so its image encoder arrives
+        # unhooked and stays on the CPU in fp32 while everything feeding it is
+        # CUDA fp16 - "Input type (torch.cuda.HalfTensor) and weight type
+        # (torch.HalfTensor) should be the same". Placing it on the execution
+        # device explicitly is the same fix this project needed for the text
+        # encoder under offload. It costs ~1.2GB of resident VRAM, which is why
+        # the encoder is not offloaded along with the rest.
+        encoder = getattr(pipe, "image_encoder", None)
+        if encoder is not None:
+            pipe.image_encoder = encoder.to(pipe._execution_device, dtype=torch.float16)
+        log_with_fields(logger, 20, "ip-adapter enabled", scale=scale,
+                         device=str(pipe._execution_device))
+        return True
+    except Exception as e:  # noqa: BLE001 - any failure here is non-fatal
+        log_with_fields(logger, 30, "ip-adapter unavailable, using text conditioning only",
+                         error=str(e)[:200])
+        return False
+
+
 def to_cpu_fallback(pipe: DiffusionPipeline) -> DiffusionPipeline:
     """Called on CUDA OOM: release GPU memory and move the pipeline to CPU."""
     torch.cuda.empty_cache()
