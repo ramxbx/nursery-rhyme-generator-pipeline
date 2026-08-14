@@ -53,7 +53,14 @@ TRIM_THRESHOLD = 0.02
 # flicks past. Takes longer than this multiple of the script's (syllable-based)
 # estimate are rejected and regenerated; because generation is non-deterministic
 # a retry usually lands in range.
-MAX_DURATION_RATIO = 2.0
+#
+# Started at 2.0, which proved far too loose to deliver even scenes: a measured
+# run passed every take yet still spanned 0.48x-1.89x of estimate, a 3.3x spread
+# between the shortest and longest scene. 1.4 is the ceiling half of a
+# [0.6x, 1.4x] acceptance band; the floor is handled for free by padding in
+# audio_agent (see MIN_DURATION_RATIO there) rather than by regenerating,
+# because a short take can be extended but a long one cannot be shortened.
+MAX_DURATION_RATIO = 1.4
 # Rejecting is only worth so much: each attempt is minutes of compute, so after
 # this many the line falls back to Piper, which is fast and length-predictable.
 MAX_TAKES = 3
