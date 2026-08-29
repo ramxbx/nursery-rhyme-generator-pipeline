@@ -60,25 +60,58 @@ A 6-line poem is ~45 min end to end. A 16-line poem is ~2 h. Use
 | GPT-14 YouTube upload | Todo | Never started |
 | GPT-22 / GPT-25 | Backlog | Older style + prompt-ordering items |
 
-## GPT-26 in detail — where it actually stands
+## GPT-26 in detail — AnimateDiff IS viable, config chosen
 
-AnimateDiff **works** on this machine. 8 frames at 512², IP-Adapter conditioned
-on the lamb, produced `anim_scene_003.mp4`.
+Earlier this file said AnimateDiff was impractical at 508 s/frame. That was
+measured at 512x512/20 steps and is no longer the operating point.
 
-The problem is speed: **4067 s for 8 frames = 508 s/frame.** One second of
-animation took 68 minutes. A 6-scene poem at 8 frames each would be ~7 hours.
+**Chosen config: 384x384, 10 steps, 16 frames, 2-second clips.**
+Judged best by eye against seven alternatives; nothing else came close.
+Costs ~40 min per 2-second scene, so a 6-scene poem is ~4 hours of animation.
 
-VRAM peaked at 2.16 GB of 4.29 and *fell* to 0.90 GB during generation — the card
-is barely working. The cost is `enable_model_cpu_offload` shuttling weights for
-every step of every frame.
+### The grid (all 2-second clips, same lamb scene, same prompt)
 
-**Untested next step:** `spikes/animate_spike2.py` inverts this — loads straight
-to CUDA, no offload, VAE slicing only. Should use ~3.5 GB of VRAM and far less
-host RAM. If it reaches even 30 s/frame that's a 17× speedup and changes the answer.
+| res | steps | frames | time | per frame | verdict |
+|---|---|---|---|---|---|
+| 256² | 8 | 8 | 6.4 min | 48 s | dissolved |
+| 256² | 10 | 8 | 7.6 min | 57 s | dissolved |
+| 256² | 10 | 16 | 16 min | 60 s | dissolved |
+| 320² | 10 | 16 | 28 min | 105 s | not chosen |
+| 384² | 6 | 16 | 23.7 min | 89 s | not chosen |
+| 384² | 8 | 16 | 29.4 min | 110 s | not chosen |
+| 384² | 10 | 8 | 18 min | 135 s | not chosen |
+| **384²** | **10** | **16** | **40 min** | **150 s** | **chosen** |
+| 384² | 12 | 16 | 45 min | 168 s | worse than 10 |
 
-Two earlier failures were misdiagnosed as memory limits; both were actually a
-missing `opencv-python` (now installed) which made `export_to_video` fail *after*
-generating everything. Capture the real exception before theorising about memory.
+### What the grid shows
+
+- **Resolution dominates cost.** 384² runs 135-150 s/frame whether you diffuse 8
+  frames or 16; 256² runs 48-60 s/frame either way.
+- **Frame count is nearly free** per frame, so it trades motion smoothness against
+  wall-clock almost linearly — no quadratic blowup from temporal attention.
+- **Cost does not scale with pixel area.** 320² is 1.56x the area of 256² but took
+  1.75x the time; there is fixed per-step overhead that low resolutions cannot escape.
+- **512² is SD1.5 native.** Everything below it is off-distribution, and the
+  "watercolour" look is the model degrading gracefully. 256² degrades past legibility.
+- **CPU offload does not share compute, only storage.** Offloaded 508 s/frame vs
+  no-offload 527 s/frame at 512²/20 steps — the GPU does all the maths either way.
+
+### Step count is at an optimum, not a ceiling
+
+12 steps was tested and judged **worse** than 10, so more denoising is not simply
+better. The encoded file sizes point the same way: 458KB at 10 steps against
+241KB at 12, and across this grid larger files have tracked more retained detail
+(H.264 compresses smooth, low-detail footage harder). The extra steps appear to
+smooth away the texture that gives the 10-step version its character.
+
+No reason to test 15. The config is converged.
+
+### Integration status
+
+Not wired into `animate_agent` yet. Spike lives at `spikes/animate_spike2.py`,
+parameterised by `AD_FRAMES` and `AD_STEPS` env vars; resolution is a constant in
+the file. Frames export at `FRAMES/2` fps so a clip is always 2 seconds, then
+ffmpeg `minterpolate` (mci/aobmc/bidir) fills to 24 fps in ~5 s.
 
 ## Gotchas
 
@@ -86,8 +119,13 @@ generating everything. Capture the real exception before theorising about memory
   and get overwritten by every run. Copy anything worth keeping.
 - Stage manifests aren't namespaced per run; a count mismatch marks them stale
   and re-runs (fixed, but that's why).
-- LM Studio must be running with `lfm2-1.2b-bench` and `gemma-4-e2b-bench` loaded.
-  `lms ps` to check, `lms load <model> --identifier <name>` to fix.
+- **`Bionic.exe` serves the OpenAI-compatible API on `127.0.0.1:1234`**, which is
+  what `config/pipeline.yaml` points at — not LM Studio, despite the `lms` CLI
+  being installed and appearing to work. Check with
+  `curl -s http://127.0.0.1:1234/v1/models` rather than `lms ps`; the models the
+  pipeline names (`lfm2-1.2b-bench`, `gemma-4-e2b-bench`) must appear in that list.
+- Ollama may also be running on `:11434`. Nothing here uses it, and it holds
+  ~3 GB of host RAM even with no models loaded — worth stopping before a long run.
 - Python block-buffers stdout when redirected — use `python -u` for background
   runs or you see nothing until exit.
 - Don't pipe a pipeline run through `tail`: it masks the real exit code. That
