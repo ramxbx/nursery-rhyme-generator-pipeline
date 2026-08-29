@@ -35,6 +35,7 @@ import torch
 from PIL import Image
 
 from src.config import PipelineConfig, load_config
+from src.utils.compositing import BACKGROUND_NEGATIVE, background_prompt, cut_out_subject
 from src.utils.file_manager import ensure_dirs, read_json, safe_write_json, scene_path
 from src.utils.logger import get_logger, log_with_fields
 
@@ -47,6 +48,15 @@ MOTION_STEPS = 10
 MOTION_FRAMES = 16
 # 16 frames at 8fps = 2 seconds of source motion per scene.
 MOTION_FPS = 8
+
+# Rebuilt here rather than imported from visual_agent: importing it would pull
+# the whole SD image pipeline into this process for two string constants.
+STYLE_PREFIX = "modern disney style, cute children's cartoon"
+SHOT_PREFIXES = {
+    "wide": "wide establishing shot, full scene visible, detailed background",
+    "medium": "medium shot, surroundings in frame",
+    "close": "close up, simple background",
+}
 
 
 def build_motion_pipeline(sd_config: dict):
@@ -77,7 +87,10 @@ def animate_scene(pipe, prompt: str, seed: int, sd_config: dict):
     try:
         result = pipe(
             prompt=prompt,
-            negative_prompt=sd_config.get("negative_prompt"),
+            # Characters are pushed out of the background pass explicitly - the
+            # setting words alone are not enough to stop SD drawing an animal.
+            negative_prompt=", ".join(filter(None, [sd_config.get("negative_prompt"),
+                                                     BACKGROUND_NEGATIVE])),
             num_frames=MOTION_FRAMES,
             num_inference_steps=MOTION_STEPS,
             width=MOTION_WIDTH,
@@ -106,15 +119,32 @@ def generate_motion(script: dict, images_manifest: list[dict], config: PipelineC
     for entry in images_manifest:
         idx = entry["scene_index"]
         started = time.perf_counter()
-        frames = animate_scene(pipe, entry["prompt"], entry["seed"], config.sd)
+        scene = script["scenes"][idx - 1] if idx - 1 < len(script["scenes"]) else {}
+        # The background is animated WITHOUT the subject: it is composited back
+        # in afterwards from the still, sharp. Animating it here would both
+        # duplicate it and spend the motion budget warping a face.
+        prompt = background_prompt(STYLE_PREFIX, SHOT_PREFIXES.get(entry.get("shot"), ""),
+                                    scene.get("scene_description", ""))
+        frames = animate_scene(pipe, prompt, entry["seed"], config.sd)
         if frames is None:
             continue
         out_path = scene_path(motion_dir, idx, ".mp4")
         export_to_video(frames, str(out_path), fps=MOTION_FPS)
+
+        subject_path = motion_dir / f"subject_{idx:03d}.png"
+        coverage = cut_out_subject(Path(entry["image_path"]), subject_path,
+                                    entry.get("shot", "medium"))
         elapsed = round(time.perf_counter() - started, 1)
-        manifest.append({"scene_index": idx, "motion_path": str(out_path),
-                          "frames": MOTION_FRAMES, "fps": MOTION_FPS,
-                          "duration_s": MOTION_FRAMES / MOTION_FPS, "elapsed_s": elapsed})
+        record = {"scene_index": idx, "motion_path": str(out_path),
+                  "frames": MOTION_FRAMES, "fps": MOTION_FPS,
+                  "duration_s": MOTION_FRAMES / MOTION_FPS, "elapsed_s": elapsed,
+                  "background_prompt": prompt}
+        # A scene whose subject could not be segmented still gets its animated
+        # background; assembly falls back to using it whole.
+        if coverage is not None:
+            record["subject_path"] = str(subject_path)
+            record["subject_coverage"] = round(coverage, 3)
+        manifest.append(record)
         log_with_fields(logger, 20, "scene motion generated", scene_index=idx,
                          elapsed_s=elapsed, path=str(out_path))
     return manifest

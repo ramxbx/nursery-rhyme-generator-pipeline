@@ -141,3 +141,22 @@ def test_rhyme_requirement_scales_with_length():
 def test_default_length_is_unchanged():
     lines, reason = ra.validate_poem(_poem(GOOD), SEED)
     assert lines == GOOD, reason
+
+
+def test_fallback_respects_the_requested_line_count():
+    """A `--lines 4` run that fell back silently returned the full 16-line poem.
+    At ~40 min per animated scene that is a 2.7 hour render turning into 10.7."""
+    name, text = ra.pick_fallback(random.Random(0), line_total=4)
+    assert len(text.strip().splitlines()) == 4
+
+
+def test_fallback_truncates_on_an_even_boundary():
+    """Poems are couplets; an odd cut leaves a line with no rhyme partner."""
+    for requested in (3, 5, 7):
+        _, text = ra.pick_fallback(random.Random(0), line_total=requested)
+        assert len(text.strip().splitlines()) % 2 == 0
+
+
+def test_fallback_defaults_to_the_full_poem():
+    _, text = ra.pick_fallback(random.Random(0))
+    assert len(text.strip().splitlines()) == ra.RHYME_LINES

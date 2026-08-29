@@ -65,7 +65,7 @@ MAX_WORDS_PER_LINE = 12
 # GPT-18 benchmark is unambiguous that the 1B-class models cannot hold structure
 # over that length. The same 4.6B model that draws the scene descriptions is
 # used here for the same reason.
-RHYME_MODEL = "gemma-4-e2b-bench"
+RHYME_MODEL = "google/gemma-4-e2b"
 RHYME_MAX_TOKENS = 1400         # generous: this is a reasoning model and burns a
                                 # large hidden pass before visible output starts.
 RHYME_TIMEOUT_S = 300
@@ -210,7 +210,8 @@ def validate_poem(text: str, seed: dict, check_originality: bool = True,
     return lines, ""
 
 
-def pick_fallback(rng: random.Random | None = None) -> tuple[str, str]:
+def pick_fallback(rng: random.Random | None = None,
+                   line_total: int = RHYME_LINES) -> tuple[str, str]:
     """A pre-written poem, used when generation fails. Returns (name, text).
 
     The source files carry blank lines between stanzas because they are meant
@@ -222,7 +223,12 @@ def pick_fallback(rng: random.Random | None = None) -> tuple[str, str]:
         raise FileNotFoundError(f"no fallback rhymes in {FALLBACK_DIR}")
     path = (rng or random).choice(paths)
     lines = [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    return path.stem, "\n".join(lines) + "\n"
+    # Truncated to the requested length, on an even boundary so couplets
+    # stay intact. Without this a `--lines 4` run that fell back silently
+    # produced a 16-line poem - which at ~40 min per animated scene is the
+    # difference between a 2.7 hour render and a 10.7 hour one.
+    keep = max(2, min(line_total - line_total % 2, len(lines)))
+    return path.stem, "\n".join(lines[:keep]) + "\n"
 
 
 def generate_rhyme(config: PipelineConfig | None = None, seed_title: str | None = None,
@@ -268,7 +274,7 @@ def generate_rhyme(config: PipelineConfig | None = None, seed_title: str | None 
         log_with_fields(logger, 30, "rhyme rejected, retrying", attempt=attempt,
                          seed=seed["title"], reason=reason)
 
-    name, text = pick_fallback(rng)
+    name, text = pick_fallback(rng, line_total)
     log_with_fields(logger, 30, "rhyme generation exhausted retries, using fallback poem", name=name)
     return name, text, False
 
@@ -286,7 +292,7 @@ def main() -> None:
 
     config = load_config()
     if args.fallback_only:
-        name, text = pick_fallback()
+        name, text = pick_fallback(line_total=args.lines)
         generated = False
     else:
         name, text, generated = generate_rhyme(config, args.seed, line_total=args.lines)

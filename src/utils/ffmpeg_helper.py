@@ -88,6 +88,59 @@ def _zoompan(motion: str, n_frames: int, width: int, height: int, fps: int) -> s
     return f"zoompan=z={z}:x='{centre_x}':y='{centre_y}':d=1:s={width}x{height}:fps={fps}"
 
 
+# Drift applied to the composited subject. Periods are deliberately coprime
+# (7s, 11s, 13s) so the three motions never resynchronise into a visible loop,
+# and the amplitudes are small - the subject should look like it belongs in the
+# scene, not like it is swimming across it. Fully static reads as a sticker.
+SUBJECT_DRIFT_X_PX = 40
+SUBJECT_DRIFT_Y_PX = 22
+SUBJECT_SCALE_PCT = 0.03
+SUBJECT_HEIGHT_FRAC = 0.55
+
+
+def build_composite_scene_clip(background_path: Path, subject_path: Path, audio_path: Path,
+                                duration_s: float, fps: int, width: int, height: int,
+                                out_path: Path) -> Path:
+    """Animated background with a sharp still subject drifting over it.
+
+    This exists because AnimateDiff warps whatever it animates. Backgrounds
+    survive that - a shifting wash of grass and light reads as watercolour - but
+    a warping face reads as broken. So the subject comes from the image stage's
+    768x768 still, cut out and composited, and only the background moves.
+
+    The background is looped and interpolated exactly as in build_motion_scene_clip;
+    the subject is scaled to a fraction of frame height and given slow positional
+    drift plus a slight scale breath so it sits in the scene rather than on it."""
+    n_loops = max(1, int(duration_s / 2.0) + 1)
+    sub_h = int(height * SUBJECT_HEIGHT_FRAC)
+    chain = (
+        f"[0:v]minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,"
+        f"scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
+        f"crop={width}:{height}[bgv];"
+        f"[1:v]scale=-1:{sub_h}:flags=lanczos,"
+        f"zoompan=z='1+{SUBJECT_SCALE_PCT}*sin(2*PI*on/({fps}*13))':d=1"
+        f":s={int(sub_h * 1.2)}x{sub_h}:fps={fps}[fgv];"
+        f"[bgv][fgv]overlay="
+        f"x='(W-w)/2 + {SUBJECT_DRIFT_X_PX}*sin(2*PI*t/7)':"
+        f"y='(H-h)/2 + {SUBJECT_DRIFT_Y_PX}*sin(2*PI*t/11)':"
+        f"format=auto,format=yuv420p[v]"
+    )
+    args = [
+        ffmpeg_path(), "-y",
+        "-stream_loop", str(n_loops), "-i", str(background_path),
+        "-loop", "1", "-i", str(subject_path),
+        "-i", str(audio_path),
+        "-filter_complex", chain,
+        "-map", "[v]", "-map", "2:a",
+        "-t", f"{duration_s:.3f}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps),
+        "-c:a", "aac", "-shortest",
+        str(out_path),
+    ]
+    run(args)
+    return out_path
+
+
 def build_motion_scene_clip(motion_path: Path, audio_path: Path, duration_s: float,
                              fps: int, width: int, height: int, out_path: Path) -> Path:
     """Build a scene from an AnimateDiff clip instead of a still.
