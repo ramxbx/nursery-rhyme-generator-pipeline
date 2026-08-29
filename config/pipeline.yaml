@@ -69,3 +69,10 @@ visual:
   character_bank: true
   ip_adapter: true
   ip_adapter_scale: 0.5
+
+motion:
+  # AnimateDiff clips instead of Ken Burns pans. OFF by default: at ~40 min per
+  # scene this dominates the pipeline - a 6-scene poem is ~4 hours of animation
+  # against ~30 min of images. Settings live in src/agents/motion_agent.py and
+  # came from a nine-configuration sweep recorded in STATUS.md.
+  enabled: true

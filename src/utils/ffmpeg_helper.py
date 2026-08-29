@@ -88,6 +88,43 @@ def _zoompan(motion: str, n_frames: int, width: int, height: int, fps: int) -> s
     return f"zoompan=z={z}:x='{centre_x}':y='{centre_y}':d=1:s={width}x{height}:fps={fps}"
 
 
+def build_motion_scene_clip(motion_path: Path, audio_path: Path, duration_s: float,
+                             fps: int, width: int, height: int, out_path: Path) -> Path:
+    """Build a scene from an AnimateDiff clip instead of a still.
+
+    The generated clip is 2 seconds and scenes run 3-5, so it is looped to fill.
+    Looping rather than slowing it down: at 8fps the source has no frames to
+    spare, and stretching turns a walk into a crawl. The loop point is visible
+    on close inspection but reads as a cycle, which suits a child's rhyme.
+
+    minterpolate raises the source to the video frame rate. It estimates motion
+    vectors rather than cross-fading, so it invents genuine in-between positions
+    - blending would ghost. It is also what makes 16 diffused frames enough:
+    without it the motion is visibly choppy at 8fps.
+
+    Upscaling happens after interpolation, so the interpolator works on the
+    clean 384x384 source rather than on upscaling artefacts."""
+    n_loops = max(1, int(duration_s / 2.0) + 1)
+    chain = (
+        f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,"
+        f"scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
+        f"crop={width}:{height}"
+    )
+    args = [
+        ffmpeg_path(), "-y",
+        "-stream_loop", str(n_loops), "-i", str(motion_path),
+        "-i", str(audio_path),
+        "-filter_complex", f"[0:v]{chain}[v]",
+        "-map", "[v]", "-map", "1:a",
+        "-t", f"{duration_s:.3f}",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps),
+        "-c:a", "aac", "-shortest",
+        str(out_path),
+    ]
+    run(args)
+    return out_path
+
+
 def build_scene_clip(image_path: Path, audio_path: Path, duration_s: float,
                       fps: int, width: int, height: int, out_path: Path,
                       motion: str = "push_in") -> Path:

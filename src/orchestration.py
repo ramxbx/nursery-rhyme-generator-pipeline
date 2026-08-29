@@ -133,6 +133,20 @@ def run_pipeline(input_path: Path, name: str | None = None, force: bool = False)
         log_with_fields(logger, 20, "skipping visual stage, output is current", path=str(images_manifest))
     validate_manifest(images_manifest, n_scenes, "visual")
 
+    # Stage 2b: motion (GPU) - optional, and by far the most expensive stage in
+    # the pipeline at ~40 min per scene. Its own subprocess so the model is
+    # released before the audio stage starts, and sequenced after the image
+    # stage so the two never share the card.
+    motion_manifest = Path(config.paths["images_dir"]).parent / "motion" / "manifest.json"
+    if config.pipeline.get("motion", {}).get("enabled", False):
+        if force or not manifest_is_current(motion_manifest, n_scenes):
+            run_stage("src.agents.motion_agent",
+                      [str(script_path), "--images-manifest", str(images_manifest),
+                       "--out", str(motion_manifest)], "motion")
+        else:
+            log_with_fields(logger, 20, "skipping motion stage, output is current",
+                             path=str(motion_manifest))
+
     # Stage 3: audio (CPU)
     if force or not manifest_is_current(audio_manifest, n_scenes):
         run_stage("src.agents.audio_agent", [str(script_path), "--out", str(audio_manifest)], "audio")
@@ -146,6 +160,7 @@ def run_pipeline(input_path: Path, name: str | None = None, force: bool = False)
         str(script_path),
         "--images-manifest", str(images_manifest),
         "--audio-manifest", str(audio_manifest),
+        "--motion-manifest", str(motion_manifest),
         "--out", str(output_path),
     ], "animate")
     if not output_path.exists():
