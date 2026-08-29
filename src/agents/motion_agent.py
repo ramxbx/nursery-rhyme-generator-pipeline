@@ -81,16 +81,17 @@ def build_motion_pipeline(sd_config: dict):
     return pipe
 
 
-def animate_scene(pipe, prompt: str, seed: int, sd_config: dict):
+def animate_scene(pipe, prompt: str, seed: int, sd_config: dict, composite: bool = False):
     """One scene's frames. Returns None on OOM so the caller can fall back to
     the still image rather than losing the whole stage."""
     try:
         result = pipe(
             prompt=prompt,
-            # Characters are pushed out of the background pass explicitly - the
-            # setting words alone are not enough to stop SD drawing an animal.
-            negative_prompt=", ".join(filter(None, [sd_config.get("negative_prompt"),
-                                                     BACKGROUND_NEGATIVE])),
+            # Characters are pushed out only on the background-only path; the
+            # whole-scene path needs the subject drawn.
+            negative_prompt=", ".join(filter(None, [
+                sd_config.get("negative_prompt"),
+                BACKGROUND_NEGATIVE if composite else None])),
             num_frames=MOTION_FRAMES,
             num_inference_steps=MOTION_STEPS,
             width=MOTION_WIDTH,
@@ -114,26 +115,38 @@ def generate_motion(script: dict, images_manifest: list[dict], config: PipelineC
     motion_dir = Path(dirs["images_dir"]).parent / "motion"
     motion_dir.mkdir(parents=True, exist_ok=True)
 
+    # Whole-scene animation by default. Background-only + composited subject is
+    # implemented but off: it keeps the subject sharp, at the cost of a prompt
+    # path and a segmentation step that have not been validated against real
+    # output. See motion.composite_subject in config/pipeline.yaml.
+    composite = config.pipeline.get("motion", {}).get("composite_subject", False)
     pipe = build_motion_pipeline(config.sd)
     manifest = []
     for entry in images_manifest:
         idx = entry["scene_index"]
         started = time.perf_counter()
         scene = script["scenes"][idx - 1] if idx - 1 < len(script["scenes"]) else {}
-        # The background is animated WITHOUT the subject: it is composited back
-        # in afterwards from the still, sharp. Animating it here would both
-        # duplicate it and spend the motion budget warping a face.
-        prompt = background_prompt(STYLE_PREFIX, SHOT_PREFIXES.get(entry.get("shot"), ""),
-                                    scene.get("scene_description", ""))
-        frames = animate_scene(pipe, prompt, entry["seed"], config.sd)
+        if composite:
+            # Background only; the subject is composited back from the still so
+            # it stays sharp. Untested against the model - see STATUS.md.
+            prompt = background_prompt(STYLE_PREFIX, SHOT_PREFIXES.get(entry.get("shot"), ""),
+                                        scene.get("scene_description", ""))
+        else:
+            # Whole scene animated, subject included. This is the configuration
+            # the nine-config sweep was judged on, and the one that produced the
+            # clip this project chose.
+            prompt = entry["prompt"]
+        frames = animate_scene(pipe, prompt, entry["seed"], config.sd, composite)
         if frames is None:
             continue
         out_path = scene_path(motion_dir, idx, ".mp4")
         export_to_video(frames, str(out_path), fps=MOTION_FPS)
 
-        subject_path = motion_dir / f"subject_{idx:03d}.png"
-        coverage = cut_out_subject(Path(entry["image_path"]), subject_path,
-                                    entry.get("shot", "medium"))
+        coverage = None
+        if composite:
+            subject_path = motion_dir / f"subject_{idx:03d}.png"
+            coverage = cut_out_subject(Path(entry["image_path"]), subject_path,
+                                        entry.get("shot", "medium"))
         elapsed = round(time.perf_counter() - started, 1)
         record = {"scene_index": idx, "motion_path": str(out_path),
                   "frames": MOTION_FRAMES, "fps": MOTION_FPS,

@@ -19,6 +19,9 @@ script:
 
 music:
   enabled: true
+  # Background-only animation with the subject composited over it from the
+  # still. Off: the whole-scene path is what the config sweep was judged on.
+  composite_subject: false
   backend: musicgen  # musicgen | procedural
   volume: 0.15   # music is now ducked under the voice and no longer halved by amix, so it needs far less
   duck: true     # push the music down while a word is sung, let it swell back between lines
@@ -26,13 +29,16 @@ music:
 
 subtitles:
   enabled: true
+  # Background-only animation with the subject composited over it from the
+  # still. Off: the whole-scene path is what the config sweep was judged on.
+  composite_subject: false
   font_size: 120
 
 models:
   llm:
     endpoint: http://127.0.0.1:1234/v1
-    primary: lfm2-1.2b-bench
-    fallback: gemma-3-1b-bench
+    primary: liquid/lfm2-1.2b
+    fallback: google/gemma-3-1b
     excluded:
       - qwen3-1.7b-bench
     context_length: 4096
@@ -76,3 +82,6 @@ motion:
   # against ~30 min of images. Settings live in src/agents/motion_agent.py and
   # came from a nine-configuration sweep recorded in STATUS.md.
   enabled: true
+  # Background-only animation with the subject composited over it from the
+  # still. Off: the whole-scene path is what the config sweep was judged on.
+  composite_subject: false
