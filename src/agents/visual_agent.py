@@ -376,6 +376,36 @@ def generate_visuals(script: dict, config: PipelineConfig) -> list[dict]:
     # framing decision has to be made here, once, for both.
     animated = config.pipeline.get("motion", {}).get("enabled", False)
 
+    # ONE character per poem, resolved once, used by every scene.
+    #
+    # This must happen outside the IP-Adapter branch below, and its result must
+    # be what the per-scene loop uses. When each scene resolved its own subject
+    # instead, the bank filled up with whatever noun the model happened to open
+    # a scene description with: a four-line poem about an egg registered
+    # "village stones", "shadows dancing and creeping across the wall" and
+    # "sleepy little birdies sleeping on the ground" as three separate
+    # characters. CLIP was then asked whether each image contained a phrase that
+    # is not a subject at all, scored ~0.17 against a 0.26 bar, and burned all
+    # five attempts on three of four scenes - 25 minutes against 10, for worse
+    # images and no character consistency.
+    #
+    # The scene-description template establishes a single subject for the whole
+    # story; the model just varies its wording (one run said "tiny spider" in
+    # five scenes and "radiant arachnid" in the sixth). The most common key
+    # across scenes is the poem's actual subject.
+    main_key, main_canonical, main_seed = None, None, None
+    if use_bank:
+        keys = [character_key(_subject_of(s)) for s in script["scenes"]]
+        main_key = Counter(keys).most_common(1)[0][0]
+        main_scene = next(s for s, k in zip(script["scenes"], keys) if k == main_key)
+        main_subject = _subject_of(main_scene)
+        main_canonical, main_seed, is_new = resolve_character(
+            bank, main_subject, seed_for_character(main_subject),
+            main_scene.get("scene_description", ""))
+        if is_new:
+            log_with_fields(logger, 20, "character registered", key=main_key,
+                             descriptor=main_canonical)
+
     # Reference portraits are generated BEFORE the adapter is attached: a brand
     # new character has nothing to condition on yet, and conditioning a
     # reference on some other character's reference would be worse than useless.
@@ -383,20 +413,8 @@ def generate_visuals(script: dict, config: PipelineConfig) -> list[dict]:
     if use_bank and visual_config.get("ip_adapter", True):
         from PIL import Image
 
-        # One character per poem, not one per scene. The scene-description
-        # template establishes a single subject for the whole story, but the
-        # model still varies its wording - one run called the same character
-        # "tiny spider" in five scenes and "radiant arachnid" in the sixth,
-        # which registered two characters, generated two references, and
-        # conditioned the last scene on a different creature. The most common
-        # key across scenes is the poem's actual subject.
-        keys = [character_key(_subject_of(s)) for s in script["scenes"]]
-        main_key = Counter(keys).most_common(1)[0][0]
-        main_scene = next(s for s, k in zip(script["scenes"], keys) if k == main_key)
-        subject = _subject_of(main_scene)
-        canonical, base_seed, _ = resolve_character(
-            bank, subject, seed_for_character(subject), main_scene.get("scene_description", ""))
-        path = ensure_reference(pipe, main_key, canonical, base_seed, config.sd, clip_verifier)
+        path = ensure_reference(pipe, main_key, main_canonical, main_seed,
+                                 config.sd, clip_verifier)
         if path:
             # Every scene conditions on this one reference, whatever synonym its
             # own description happened to use.
@@ -409,11 +427,6 @@ def generate_visuals(script: dict, config: PipelineConfig) -> list[dict]:
         speaker = scene["speaker"]
         shot = shot_for_scene(i, animated)
         subject = _subject_of(scene)
-        # Derived from the scene's own wording, BEFORE `subject` is replaced by
-        # the canonical descriptor below. Keying off the descriptor instead
-        # returns its last word - "flank" for a pig with a dark spot on one -
-        # so the reference lookup missed and every scene silently generated
-        # unconditioned.
         key = character_key(subject)
         # Offset by scene index so a single-narrator poem doesn't generate
         # every scene from the identical seed (GPT-28).
@@ -421,14 +434,14 @@ def generate_visuals(script: dict, config: PipelineConfig) -> list[dict]:
         canonical = None
 
         if use_bank:
-            canonical, base_seed, is_new = resolve_character(
-                bank, subject, seed_for_character(subject), scene.get("scene_description", ""))
-            if is_new:
-                log_with_fields(logger, 20, "character registered", key=key, descriptor=canonical)
+            # The poem's one character, not this scene's opening noun. Nothing
+            # is registered here: registration happened once, above.
+            key, canonical = main_key, main_canonical
             # The stored descriptor replaces this poem's wording for the subject,
-            # which is what holds appearance steady between episodes.
+            # which is what holds appearance steady between episodes - and makes
+            # CLIP verify against the character rather than against scenery.
             subject = canonical
-            seed = base_seed + i * 1000
+            seed = main_seed + i * 1000
 
         prompt = build_prompt(pipe, scene, shot, canonical)
         reference = references.get(key) if ip_ready else None

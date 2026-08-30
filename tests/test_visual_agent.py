@@ -274,3 +274,62 @@ def test_a_first_try_win_returns_the_base_seed(monkeypatch):
     _, _, _, attempts, winning = va.generate_best_image(
         object(), "a prompt", 900, {}, object(), "lamb", good_enough=0.9)
     assert (attempts, winning) == (1, 900)
+
+
+def _script(descriptions):
+    return {"scenes": [{"speaker": "narrator", "line": "x", "scene_description": d}
+                       for d in descriptions]}
+
+
+def test_only_the_poems_main_character_is_registered(monkeypatch, tmp_path):
+    """A four-line poem about an egg registered "village stones", "shadows
+    dancing and creeping across the wall" and "sleepy little birdies sleeping on
+    the ground" as three separate characters, because each scene resolved its
+    own opening noun. CLIP was then scored against phrases that are not
+    subjects: ~0.17 against a 0.26 bar, all five attempts burned on three of
+    four scenes."""
+    registered = []
+
+    def fake_resolve(bank, subject, seed, description=""):
+        registered.append(subject)
+        return subject, 1234, True
+
+    monkeypatch.setattr(va, "resolve_character", fake_resolve)
+    monkeypatch.setattr(va, "load_bank", lambda: {})
+    monkeypatch.setattr(va, "save_bank", lambda b: None)
+    monkeypatch.setattr(va, "build_pipeline", lambda cfg: object())
+    monkeypatch.setattr(va, "build_clip_verifier", lambda: object())
+    monkeypatch.setattr(va, "ensure_dirs", lambda p: {"images_dir": tmp_path})
+    monkeypatch.setattr(va, "hires_fix", lambda *a, **k: a[1])
+
+    seen_subjects = []
+
+    def fake_best(pipe, prompt, seed, sd, verifier, subject, bar, reference=None):
+        seen_subjects.append(subject)
+
+        class Img:
+            width = height = 512
+            def save(self, p): open(p, "wb").write(b"x")
+        return Img(), pipe, 0.9, 1, seed
+
+    monkeypatch.setattr(va, "generate_best_image", fake_best)
+    monkeypatch.setattr(va, "build_prompt", lambda pipe, scene, shot, ch: "prompt")
+
+    class Cfg:
+        sd = {"hires_fix": False}
+        pipeline = {"visual": {"character_bank": True, "ip_adapter": False},
+                    "motion": {"enabled": False}}
+        paths = {"images_dir": tmp_path}
+
+    script = _script([
+        "a vibrant egg, sitting on a wall",
+        "village stones, standing very tall",
+        "shadows creeping, across the wall",
+        "sleepy little birdies, on the ground",
+    ])
+    va.generate_visuals(script, Cfg())
+
+    assert len(registered) == 1, f"registered {len(registered)} characters: {registered}"
+    assert "egg" in registered[0]
+    # And every scene verifies against that character, not its own scenery.
+    assert set(seen_subjects) == {registered[0]}, seen_subjects

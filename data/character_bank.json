@@ -25,6 +25,11 @@
     "seed": 1293296337,
     "subject": "happy cow"
   },
+  "egg": {
+    "features": [],
+    "seed": 2820909723,
+    "subject": "vibrant egg"
+  },
   "girl": {
     "build": "young",
     "colour": "",

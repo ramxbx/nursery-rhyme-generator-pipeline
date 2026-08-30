@@ -89,7 +89,7 @@ def validate_manifest(path: Path, expected_scenes: int, stage_name: str) -> None
         raise StageError(f"{stage_name} manifest has {len(data)} entries, expected {expected_scenes}: {path}")
 
 
-def generate_input_rhyme(config, seed: str | None = None) -> Path:
+def generate_input_rhyme(config, seed: str | None = None, lines: int | None = None) -> Path:
     """Stage 0: write the poem the rest of the run is built from.
 
     Kept in-process rather than a subprocess like the other stages - it touches
@@ -97,7 +97,9 @@ def generate_input_rhyme(config, seed: str | None = None) -> Path:
     chosen filename back to name every downstream artefact."""
     from src.agents.rhyme_agent import generate_rhyme
 
-    name, text, generated = generate_rhyme(config, seed)
+    from src.agents.rhyme_agent import RHYME_LINES
+
+    name, text, generated = generate_rhyme(config, seed, line_total=lines or RHYME_LINES)
     path = Path(config.paths["data_dir"]) / f"{name}.txt"
     path.write_text(text, encoding="utf-8")
     log_with_fields(logger, 20, "rhyme stage complete", path=str(path), generated=generated,
@@ -179,6 +181,10 @@ def main() -> None:
                         help="Path to a text file containing the rhyme (omit with --generate)")
     parser.add_argument("--generate", action="store_true",
                         help="Write a new 16-line rhyme first instead of reading one from a file")
+    # Load-bearing for runtime, not a nicety: with the motion stage on, every
+    # extra line is another ~36 minutes of animation.
+    parser.add_argument("--lines", type=int, default=None,
+                        help="With --generate, how many lines to write (default 16)")
     parser.add_argument("--seed", default=None,
                         help="With --generate, take inspiration from this seed rhyme title")
     parser.add_argument("--name", default=None, help="Base name for output files (default: input filename stem)")
@@ -191,7 +197,7 @@ def main() -> None:
     try:
         input_path = args.input
         if args.generate:
-            input_path = generate_input_rhyme(load_config(), args.seed)
+            input_path = generate_input_rhyme(load_config(), args.seed, args.lines)
             print(f"Generated rhyme: {input_path}")
         # A generated run names its outputs after the poem, so a new rhyme never
         # silently reuses the previous run's cached scenes.

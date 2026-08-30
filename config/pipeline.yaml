@@ -75,7 +75,7 @@ motion:
   # clock - ~36 min per scene, so a 6-scene poem is ~4 hours of animation
   # against ~10 min of images. Turn it off for a fast run; scenes fall back to
   # a pan across the still.
-  enabled: true
+  enabled: false
   # Generation size, from a nine-configuration sweep recorded in STATUS.md.
   # Must be multiples of 8. Do not make this 16:9 to avoid the delivery crop -
   # that was tested (512x288, same pixel count, same cost) and SD1.5 draws
