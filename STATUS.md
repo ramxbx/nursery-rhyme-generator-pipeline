@@ -177,6 +177,35 @@ The metric reads the duplication smear as detail. Same trap as CLIP scoring
 anatomically broken subjects highly (GPT-40) and the singing spikes whose pitch
 error fell to 0.04 semitones while sounding worse. Judge motion output by eye.
 
+### Character auto-registration leaked a fourth time (fixed)
+
+Each scene resolved its own subject - the first comma-segment of its own
+description - so a four-line poem about an egg registered "village stones",
+"shadows dancing and creeping across the wall" and "sleepy little birdies
+sleeping on the ground" as characters. CLIP then verified each image against a
+phrase that is not a subject, scored ~0.17 against a 0.26 bar, and burned all
+five attempts on three of four scenes.
+
+The "one character per poem" logic already existed and its comment described
+this exact failure - but it lived inside the IP-Adapter branch and the
+per-scene loop never used its result. Now resolved once outside that branch and
+used by every scene for descriptor, seed and CLIP target. Scenes register
+nothing, so there is no longer any per-scene inference left to leak.
+
+Measured on the same poem before and after:
+
+| | before | after |
+|---|---|---|
+| characters registered | 4 (3 bogus) | 1 |
+| image generations | 16 | 6 |
+| scenes at the attempt cap | 3 of 4 | 0 |
+| CLIP scores | 0.175-0.284 | 0.267-0.302 |
+| visual stage | 25 min | 12 min |
+
+Caught by running a fast `motion.enabled: false` pass before committing to a
+long render. **Do that before every long run** - it exercises every stage in
+~25 minutes instead of hours.
+
 ### The seed search records the wrong seed (fixed)
 
 `generate_best_image` tries up to 5 consecutive seeds and keeps the highest
