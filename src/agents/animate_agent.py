@@ -24,8 +24,7 @@ import soundfile as sf
 from src.config import PipelineConfig, load_config
 from src.utils.ffmpeg_helper import (
     build_scene_clip, burn_subtitles, compute_scene_timeline, crossfade_concat,
-    build_composite_scene_clip, build_motion_scene_clip, mix_background_music,
-    motion_for_scene, probe,
+    build_motion_scene_clip, mix_background_music, motion_for_scene, probe,
 )
 from src.utils.file_manager import ensure_dirs, read_json
 from src.utils.logger import get_logger, log_with_fields
@@ -91,14 +90,7 @@ def assemble_video(images_manifest: list[dict], audio_manifest: list[dict],
 
             clip_path = tmp_dir / f"clip_{idx:03d}.mp4"
             motion_entry = motion_by_scene.get(idx)
-            if motion_entry and motion_entry.get("subject_path"):
-                # Animated background, sharp subject composited over it.
-                motion = "composited"
-                build_composite_scene_clip(
-                    Path(motion_entry["motion_path"]), Path(motion_entry["subject_path"]),
-                    audio_path, duration, fps, width, height, clip_path)
-            elif motion_entry:
-                # Background animated but the subject could not be segmented.
+            if motion_entry:
                 motion = "animated"
                 build_motion_scene_clip(Path(motion_entry["motion_path"]), audio_path,
                                          duration, fps, width, height, clip_path)

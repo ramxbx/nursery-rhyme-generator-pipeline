@@ -49,12 +49,22 @@ A 6-line poem is ~45 min end to end. A 16-line poem is ~2 h. Use
   *above* "one nose" and "deformed" lowest of all probes. More best-of-N attempts
   buy nothing against this failure class.
 - **Per-character LoRA isn't needed** (GPT-38) now that IP-Adapter works.
+- **Compositing a sharp subject over an animated background looks worse**, not
+  better, than animating the whole scene. The subject reads as a sticker on a
+  moving plate however much drift is added. Judged by eye and removed; the code
+  is recoverable from commit 4615b4d (`src/utils/compositing.py`,
+  `build_composite_scene_clip`).
+- **Wide aspect ratios break SD1.5 composition**, at any pixel count. 512x288
+  costs exactly what 384x384 costs (148 vs 147 s/frame, same pixels) and wastes
+  nothing to the 16:9 crop, but the model draws a herd of duplicated subjects
+  instead of one. Detail must come from an upscaler, not frame shape. Details
+  under GPT-26 below.
 
 ## Open
 
 | issue | state | note |
 |---|---|---|
-| GPT-26 AnimateDiff | In Progress | **Runs, but 508 s/frame.** See below |
+| GPT-26 AnimateDiff | In Progress | **Integrated; one full 4-scene run done at 36 min/scene.** Clarity work in flight — see below |
 | GPT-41 score-driven singing | Backlog | ACE-Step (MIT, <4 GB) or DiffSinger. Bark still invents its own melody |
 | GPT-40 anatomy defects | Backlog | Needs a metric that sees defects, or inpainting |
 | GPT-14 YouTube upload | Todo | Never started |
@@ -106,12 +116,104 @@ smooth away the texture that gives the 10-step version its character.
 
 No reason to test 15. The config is converged.
 
-### Integration status
+### Integration status — DONE, one full run completed
 
-Not wired into `animate_agent` yet. Spike lives at `spikes/animate_spike2.py`,
-parameterised by `AD_FRAMES` and `AD_STEPS` env vars; resolution is a constant in
-the file. Frames export at `FRAMES/2` fps so a clip is always 2 seconds, then
-ffmpeg `minterpolate` (mci/aobmc/bidir) fills to 24 fps in ~5 s.
+Wired into the pipeline as stage 2b (`src/agents/motion_agent.py`), on by
+default via `motion.enabled`. A scene with a clip uses it; a scene whose
+generation OOMed falls back to a Ken Burns pan over its still, per scene rather
+than all-or-nothing.
+
+First full animated run, 4-line lamb poem, 2026-08-30:
+
+| stage | wall clock |
+|---|---|
+| script | 5.5 min |
+| visual | 10 min (4 images, all first-attempt) |
+| **motion** | **2.4 h — 36 min/scene** (2152/2144/2140/2338 s) |
+| audio + assembly | ~13 min |
+
+36 min/scene against the 40 predicted. Output: 14.9 s, 1920x1080, 4 scenes.
+
+### What the first full run revealed about clarity
+
+The generated frames are **better than the delivered video**. Two losses sit
+between them, both in delivery rather than diffusion:
+
+1. **44% of every frame is cropped away.** The clip is square, the video is
+   16:9, so `build_motion_scene_clip` scales 384x384 up 5x to cover 1920x1080
+   and centre-crops. Only 216 of 384 source rows survive; **96% of delivered
+   pixels are lanczos invention**, and compositional detail at the top and
+   bottom of frame is paid for and then discarded.
+2. **Wide shots do not survive 384px.** Scene 1's `wide establishing shot` gave
+   the lamb ~40 source pixels — an unreadable grey smudge at 1080p. Scene 2's
+   medium shot, same resolution, same run, kept the lamb, the cottage and its
+   window frames all legible. Shot type, not resolution, is what broke scene 1.
+
+Fixed for (2): `ANIMATED_SHOT_CYCLE` in `visual_agent.py` drops wide shots
+whenever the motion stage is on.
+
+**Tested and DISPROVEN for (1).** `motion.width`/`motion.height` are now config
+keys, and 512x288 is 147,456 pixels - identical to 384x384 - so it should have
+been the same cost with nothing cropped. Cost held up exactly: 39.4 min against
+the control's 39.1 (148 vs 147 s/frame), same scene, same seed, same prompt,
+same delivery path (`spikes/aspect_spike.py`).
+
+The image did not. At 512x288 SD1.5 stopped drawing one lamb and drew **a herd
+of ghostly half-lambs smeared along the bottom of the frame** - subject
+duplication along the long axis. Same failure class as GPT-28: strong aspect
+deviation triggers it as readily as excess resolution does, independent of
+pixel count.
+
+What it did show: the background at 512 wide is genuinely more detailed - real
+thatch texture, readable stonework - so "more horizontal resolution buys
+detail" was correct. It just cannot be bought this way, because composition
+breaks before the detail helps. **Do not retry wide aspects on SD1.5 at this
+scale.** Detail has to come from a post-hoc upscaler, which does not touch what
+the model composes.
+
+Caution recorded because it nearly misled this decision: by laplacian variance
+the broken clip scores 22.7 against the good one's 9.9, i.e. 2.3x "sharper".
+The metric reads the duplication smear as detail. Same trap as CLIP scoring
+anatomically broken subjects highly (GPT-40) and the singing spikes whose pitch
+error fell to 0.04 semitones while sounding worse. Judge motion output by eye.
+
+### The seed search records the wrong seed (fixed)
+
+`generate_best_image` tries up to 5 consecutive seeds and keeps the highest
+CLIP scorer, but the manifest recorded the **base** seed rather than the
+winner. The hires pass refined from the base seed, and the motion stage
+regenerated the whole scene from it - so a scene that took three attempts was
+animated from a composition CLIP had already rejected.
+
+Latent rather than benign: every scene of the lamb run passed first try
+(attempts=1 throughout), so base and winning seed coincided. The framing fix
+that dropped mean attempts to ~1.4 is what had been hiding it.
+
+Not recoverable after the fact either: on the early-return path the winner is
+`seed + attempts - 1`, but when all five candidates miss the bar the best can
+be any of them and that index was never recorded. `generate_best_image` now
+returns the winning seed explicitly.
+
+### The motion stage never uses the still image
+
+`animate_scene` is pure text-to-video: it reuses the image stage's prompt and
+seed so the animation depicts the same moment, but the 768x768 still itself is
+discarded. When motion is on, the image stage's real output is CLIP validation
+and a prompt — not pixels. Relevant to any future "sharpen the subject" idea,
+and to whether the image stage needs the hires pass at all in animated runs.
+
+### Encoder chain
+
+A finished video is encoded three times — scene clips, crossfade concat,
+subtitle burn-in — and all three ran at libx264's default CRF 23, so the two
+intermediates discarded detail before the final encode saw it. (The music mix
+copies the video stream and costs nothing.) Now centralised in `_x264()` in
+`ffmpeg_helper.py`: CRF 12 intermediates, CRF 18 final, preset `slow`.
+
+Measured on a re-assembly of the same manifests: sharpness (laplacian variance)
+206.4 -> 212.0, i.e. **+2.7%**, for 10.9MB -> 22.1MB. Real but marginal, which
+confirms the codec was never the main loss. Kept because YouTube re-encodes on
+upload (GPT-14), so a cleaner source is worth more than the local file size.
 
 ## Gotchas
 

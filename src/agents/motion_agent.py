@@ -1,7 +1,12 @@
 """Motion generation agent (GPT-26).
 
-Turns each scene's still image into a short animated clip with AnimateDiff,
-so the video moves rather than panning across stills.
+Regenerates each scene as a short animated clip with AnimateDiff, so the video
+moves rather than panning across a still.
+
+Note what this does NOT do: it never opens the image stage's PNG. AnimateDiff
+here is text-to-video, so a scene is rebuilt from its prompt and its seed. The
+image stage's real contribution is choosing that seed - it renders several
+candidates and keeps whichever one CLIP judged to contain the subject best.
 
 This is a GPU stage and therefore its own subprocess, like visual_agent - one
 model load, released when the process exits. It must not run concurrently with
@@ -19,7 +24,10 @@ by eye rather than by metric:
 * 16 frames exported at 8fps, so one clip covers 2 seconds, then ffmpeg
   interpolates to the video frame rate.
 
-Roughly 40 minutes per scene on a GTX 1050, which dominates the pipeline - a
+Wide aspect ratios were tried and rejected: 512x288 is the same pixel count and
+the same cost, but SD1.5 draws a herd of duplicated subjects instead of one.
+
+~36 minutes per scene on a GTX 1050, which is 81% of a run's wall clock - a
 six-scene poem is about four hours. Enable deliberately.
 """
 from __future__ import annotations
@@ -32,10 +40,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
 import torch
-from PIL import Image
 
 from src.config import PipelineConfig, load_config
-from src.utils.compositing import BACKGROUND_NEGATIVE, background_prompt, cut_out_subject
 from src.utils.file_manager import ensure_dirs, read_json, safe_write_json, scene_path
 from src.utils.logger import get_logger, log_with_fields
 
@@ -48,15 +54,6 @@ MOTION_STEPS = 10
 MOTION_FRAMES = 16
 # 16 frames at 8fps = 2 seconds of source motion per scene.
 MOTION_FPS = 8
-
-# Rebuilt here rather than imported from visual_agent: importing it would pull
-# the whole SD image pipeline into this process for two string constants.
-STYLE_PREFIX = "modern disney style, cute children's cartoon"
-SHOT_PREFIXES = {
-    "wide": "wide establishing shot, full scene visible, detailed background",
-    "medium": "medium shot, surroundings in frame",
-    "close": "close up, simple background",
-}
 
 
 def build_motion_pipeline(sd_config: dict):
@@ -81,21 +78,37 @@ def build_motion_pipeline(sd_config: dict):
     return pipe
 
 
-def animate_scene(pipe, prompt: str, seed: int, sd_config: dict, composite: bool = False):
+def motion_size(config: PipelineConfig) -> tuple[int, int]:
+    """Generation size for a motion clip, as (width, height).
+
+    Configurable because the square default wastes 44% of every frame: the
+    finished video is 16:9, so a 384x384 clip is scaled 5x to cover 1920x1080
+    and then centre-cropped, discarding 168 of its 384 rows. 512x288 is the
+    same 147,456 pixels - the same diffusion cost, to within noise - but none
+    of it is thrown away, and the horizontal resolution rises to SD1.5's native
+    512. Both dimensions must stay divisible by 8 for the VAE."""
+    motion = config.pipeline.get("motion", {})
+    width = int(motion.get("width", MOTION_WIDTH))
+    height = int(motion.get("height", MOTION_HEIGHT))
+    for name, value in (("width", width), ("height", height)):
+        if value % 8:
+            raise ValueError(f"motion.{name}={value} must be divisible by 8")
+    return width, height
+
+
+def animate_scene(pipe, prompt: str, seed: int, sd_config: dict,
+                   size: tuple[int, int] | None = None):
     """One scene's frames. Returns None on OOM so the caller can fall back to
     the still image rather than losing the whole stage."""
+    width, height = size or (MOTION_WIDTH, MOTION_HEIGHT)
     try:
         result = pipe(
             prompt=prompt,
-            # Characters are pushed out only on the background-only path; the
-            # whole-scene path needs the subject drawn.
-            negative_prompt=", ".join(filter(None, [
-                sd_config.get("negative_prompt"),
-                BACKGROUND_NEGATIVE if composite else None])),
+            negative_prompt=sd_config.get("negative_prompt"),
             num_frames=MOTION_FRAMES,
             num_inference_steps=MOTION_STEPS,
-            width=MOTION_WIDTH,
-            height=MOTION_HEIGHT,
+            width=width,
+            height=height,
             guidance_scale=sd_config.get("guidance_scale", 7.0),
             generator=torch.Generator("cpu").manual_seed(seed),
         )
@@ -106,7 +119,7 @@ def animate_scene(pipe, prompt: str, seed: int, sd_config: dict, composite: bool
         return None
 
 
-def generate_motion(script: dict, images_manifest: list[dict], config: PipelineConfig) -> list[dict]:
+def generate_motion(images_manifest: list[dict], config: PipelineConfig) -> list[dict]:
     """A motion clip per scene, reusing the image stage's prompt and seed so the
     animation depicts the same moment the still did."""
     from diffusers.utils import export_to_video
@@ -115,48 +128,27 @@ def generate_motion(script: dict, images_manifest: list[dict], config: PipelineC
     motion_dir = Path(dirs["images_dir"]).parent / "motion"
     motion_dir.mkdir(parents=True, exist_ok=True)
 
-    # Whole-scene animation by default. Background-only + composited subject is
-    # implemented but off: it keeps the subject sharp, at the cost of a prompt
-    # path and a segmentation step that have not been validated against real
-    # output. See motion.composite_subject in config/pipeline.yaml.
-    composite = config.pipeline.get("motion", {}).get("composite_subject", False)
+    size = motion_size(config)
     pipe = build_motion_pipeline(config.sd)
     manifest = []
     for entry in images_manifest:
         idx = entry["scene_index"]
         started = time.perf_counter()
-        scene = script["scenes"][idx - 1] if idx - 1 < len(script["scenes"]) else {}
-        if composite:
-            # Background only; the subject is composited back from the still so
-            # it stays sharp. Untested against the model - see STATUS.md.
-            prompt = background_prompt(STYLE_PREFIX, SHOT_PREFIXES.get(entry.get("shot"), ""),
-                                        scene.get("scene_description", ""))
-        else:
-            # Whole scene animated, subject included. This is the configuration
-            # the nine-config sweep was judged on, and the one that produced the
-            # clip this project chose.
-            prompt = entry["prompt"]
-        frames = animate_scene(pipe, prompt, entry["seed"], config.sd, composite)
+        # The image stage's own prompt, so the animation depicts the moment the
+        # still did - and its seed, so it starts from the composition CLIP chose.
+        prompt = entry["prompt"]
+        frames = animate_scene(pipe, prompt, entry["seed"], config.sd, size)
         if frames is None:
             continue
         out_path = scene_path(motion_dir, idx, ".mp4")
         export_to_video(frames, str(out_path), fps=MOTION_FPS)
 
-        coverage = None
-        if composite:
-            subject_path = motion_dir / f"subject_{idx:03d}.png"
-            coverage = cut_out_subject(Path(entry["image_path"]), subject_path,
-                                        entry.get("shot", "medium"))
         elapsed = round(time.perf_counter() - started, 1)
         record = {"scene_index": idx, "motion_path": str(out_path),
                   "frames": MOTION_FRAMES, "fps": MOTION_FPS,
+                  "width": size[0], "height": size[1],
                   "duration_s": MOTION_FRAMES / MOTION_FPS, "elapsed_s": elapsed,
-                  "background_prompt": prompt}
-        # A scene whose subject could not be segmented still gets its animated
-        # background; assembly falls back to using it whole.
-        if coverage is not None:
-            record["subject_path"] = str(subject_path)
-            record["subject_coverage"] = round(coverage, 3)
+                  "prompt": prompt}
         manifest.append(record)
         log_with_fields(logger, 20, "scene motion generated", scene_index=idx,
                          elapsed_s=elapsed, path=str(out_path))
@@ -165,6 +157,8 @@ def generate_motion(script: dict, images_manifest: list[dict], config: PipelineC
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate animated clips for each scene.")
+    # Unused - the prompts and seeds come from the images manifest - but kept
+    # so every stage takes the same first argument.
     parser.add_argument("script", type=Path)
     parser.add_argument("--images-manifest", type=Path, default=None)
     parser.add_argument("--out", type=Path, default=None)
@@ -172,10 +166,9 @@ def main() -> None:
 
     config = load_config()
     dirs = ensure_dirs(config.paths)
-    script = read_json(args.script)
     images = read_json(args.images_manifest or (dirs["images_dir"] / "manifest.json"))
 
-    manifest = generate_motion(script, images, config)
+    manifest = generate_motion(images, config)
     out_path = args.out or (Path(dirs["images_dir"]).parent / "motion" / "manifest.json")
     safe_write_json(out_path, manifest)
     print(f"Wrote {len(manifest)} motion clips, manifest at {out_path}")

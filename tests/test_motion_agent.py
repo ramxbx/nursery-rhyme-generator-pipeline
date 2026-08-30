@@ -83,14 +83,12 @@ def test_scenes_without_motion_fall_back_to_ken_burns(monkeypatch, tmp_path):
     assert used == ["motion", "kenburns"]
 
 
-def test_composite_is_preferred_when_a_subject_was_segmented(monkeypatch, tmp_path):
-    """The whole point of the composite path: the subject stays sharp because it
-    comes from the still, and only the background is allowed to warp."""
+def test_each_scene_picks_its_own_source(monkeypatch, tmp_path):
+    """Per scene, not all-or-nothing: a scene whose motion generation OOMed
+    still ships, falling back to a Ken Burns pan over its still."""
     from src.agents import animate_agent as aa
 
     used = []
-    monkeypatch.setattr(aa, "build_composite_scene_clip",
-                        lambda *a, **k: used.append("composite") or a[-1].write_bytes(b"x"))
     monkeypatch.setattr(aa, "build_motion_scene_clip",
                         lambda *a, **k: used.append("motion") or a[-1].write_bytes(b"x"))
     monkeypatch.setattr(aa, "build_scene_clip",
@@ -107,15 +105,11 @@ def test_composite_is_preferred_when_a_subject_was_segmented(monkeypatch, tmp_pa
         tts = {"sample_rate": 48000}
         paths = {"output_dir": tmp_path}
 
-    images = [{"scene_index": i, "image_path": str(tmp_path / f"i{i}.png")} for i in (1, 2, 3)]
+    images = [{"scene_index": i, "image_path": str(tmp_path / f"i{i}.png")} for i in (1, 2)]
     audio = [{"scene_index": i, "audio_path": str(tmp_path / f"a{i}.wav"),
-              "actual_duration_s": 3.0, "line": "x"} for i in (1, 2, 3)]
-    motion = [
-        {"scene_index": 1, "motion_path": str(tmp_path / "m1.mp4"),
-         "subject_path": str(tmp_path / "s1.png")},   # segmented -> composite
-        {"scene_index": 2, "motion_path": str(tmp_path / "m2.mp4")},  # no subject -> motion
-        # scene 3 has no motion at all -> ken burns
-    ]
+              "actual_duration_s": 3.0, "line": "x"} for i in (1, 2)]
+    # Scene 1 has a clip; scene 2 does not.
+    motion = [{"scene_index": 1, "motion_path": str(tmp_path / "m1.mp4")}]
 
     aa.assemble_video(images, audio, Cfg(), tmp_path / "out.mp4", motion)
-    assert used == ["composite", "motion", "kenburns"]
+    assert used == ["motion", "kenburns"]

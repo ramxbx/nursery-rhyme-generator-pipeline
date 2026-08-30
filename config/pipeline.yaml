@@ -19,9 +19,6 @@ script:
 
 music:
   enabled: true
-  # Background-only animation with the subject composited over it from the
-  # still. Off: the whole-scene path is what the config sweep was judged on.
-  composite_subject: false
   backend: musicgen  # musicgen | procedural
   volume: 0.15   # music is now ducked under the voice and no longer halved by amix, so it needs far less
   duck: true     # push the music down while a word is sung, let it swell back between lines
@@ -29,9 +26,6 @@ music:
 
 subtitles:
   enabled: true
-  # Background-only animation with the subject composited over it from the
-  # still. Off: the whole-scene path is what the config sweep was judged on.
-  composite_subject: false
   font_size: 120
 
 models:
@@ -77,11 +71,14 @@ visual:
   ip_adapter_scale: 0.5
 
 motion:
-  # AnimateDiff clips instead of Ken Burns pans. OFF by default: at ~40 min per
-  # scene this dominates the pipeline - a 6-scene poem is ~4 hours of animation
-  # against ~30 min of images. Settings live in src/agents/motion_agent.py and
-  # came from a nine-configuration sweep recorded in STATUS.md.
+  # AnimateDiff clips instead of Ken Burns pans. This is 81% of a run's wall
+  # clock - ~36 min per scene, so a 6-scene poem is ~4 hours of animation
+  # against ~10 min of images. Turn it off for a fast run; scenes fall back to
+  # a pan across the still.
   enabled: true
-  # Background-only animation with the subject composited over it from the
-  # still. Off: the whole-scene path is what the config sweep was judged on.
-  composite_subject: false
+  # Generation size, from a nine-configuration sweep recorded in STATUS.md.
+  # Must be multiples of 8. Do not make this 16:9 to avoid the delivery crop -
+  # that was tested (512x288, same pixel count, same cost) and SD1.5 draws
+  # duplicated subjects at wide aspect ratios.
+  width: 384
+  height: 384
