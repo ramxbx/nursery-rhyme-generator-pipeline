@@ -20,3 +20,7 @@ data/images_noip/
 # Sample renders kept for reference. Deliberately untracked - they are tens
 # of MB each and git has no LFS here.
 data/samples/
+
+# Generated scripts and poems from runs. Only the bundled samples are tracked.
+data/scripts/*.json
+!data/scripts/rhyme.json
