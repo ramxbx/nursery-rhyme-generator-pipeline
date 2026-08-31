@@ -7,6 +7,7 @@ models/piper/.cache/
 data/output/
 data/images/
 data/audio/
+data/motion/
 logs/*.log
 .env
 .claude/settings.local.json
@@ -15,3 +16,16 @@ logs/*.log
 # the curated entries that point at them). Regenerated on first sight.
 data/characters/
 data/images_noip/
+
+# Sample renders kept for reference. Deliberately untracked - they are tens
+# of MB each and git has no LFS here.
+data/samples/
+
+# Poems written by --generate. data/ itself holds curated inputs that are
+# checked in, so generated ones get their own directory.
+data/generated/
+
+# Scene scripts and their stamps are DERIVED from the poem in data/, which is
+# what is actually tracked. Committing the derived script meant every run that
+# touched the sample rhyme churned a checked-in file.
+data/scripts/

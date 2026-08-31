@@ -31,8 +31,8 @@ subtitles:
 models:
   llm:
     endpoint: http://127.0.0.1:1234/v1
-    primary: lfm2-1.2b-bench
-    fallback: gemma-3-1b-bench
+    primary: liquid/lfm2-1.2b
+    fallback: google/gemma-3-1b
     excluded:
       - qwen3-1.7b-bench
     context_length: 4096
@@ -69,3 +69,28 @@ visual:
   character_bank: true
   ip_adapter: true
   ip_adapter_scale: 0.5
+
+motion:
+  # AnimateDiff clips instead of Ken Burns pans over the stills.
+  #
+  # OFF by default, and that is a judgement about this machine rather than about
+  # the technique. It works - an 8-scene poem rendered end to end - but on a 4GB
+  # GTX 1050 it costs ~39 min per scene (83% of a 6-hour run) and the result
+  # flickers: 16 frames diffused at 384px, each denoised independently, looped
+  # 2-3x and motion-interpolated up to 24fps. The shimmer and the loop seam are
+  # inherent to those numbers, not a tuning mistake, and both need more frames
+  # at higher resolution to fix - which needs a bigger card.
+  #
+  # Revisit on better hardware. See STATUS.md for the full config sweep and what
+  # was already ruled out.
+  #
+  # Override per run without editing this file:
+  #   python -m src.orchestration <input> --motion
+  #   python -m src.orchestration <input> --no-motion
+  enabled: false
+  # Generation size, from a nine-configuration sweep recorded in STATUS.md.
+  # Must be multiples of 8. Do not make this 16:9 to avoid the delivery crop -
+  # that was tested (512x288, same pixel count, same cost) and SD1.5 draws
+  # duplicated subjects at wide aspect ratios.
+  width: 384
+  height: 384

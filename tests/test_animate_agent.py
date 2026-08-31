@@ -79,3 +79,34 @@ def test_motion_assignment_is_deterministic():
     from src.utils.ffmpeg_helper import motion_for_scene
 
     assert [motion_for_scene(i) for i in range(1, 7)] == [motion_for_scene(i) for i in range(1, 7)]
+
+
+def test_no_camera_move_relies_on_zoompans_accumulator():
+    """The bug this catches: push_in and pull_out were written as
+    z='min(zoom+step,MAX)', relying on zoompan's `zoom` variable carrying over
+    between frames. It does not on this input - these clips are built from
+    `-loop 1 -i image` with d=1, so every output frame comes from a fresh input
+    frame and `zoom` resets each time. The expression evaluated to a constant,
+    and 5 of 8 scenes in a finished video had no motion at all.
+
+    The filter stayed valid ffmpeg and produced a correct-looking video, so
+    nothing failed - only measuring first-vs-last frames revealed it."""
+    from src.utils.ffmpeg_helper import MOTIONS, _zoompan
+
+    for motion in MOTIONS:
+        spec = _zoompan(motion, n_frames=96, width=1920, height=1080, fps=24)
+        z = spec.split("z=", 1)[1].split(":", 1)[0]
+        assert "zoom" not in z, (
+            f"{motion} drives zoom from the accumulator ({z}), which does not "
+            f"advance with d=1 on a looped still")
+
+
+def test_every_camera_move_actually_changes_across_the_clip():
+    """Each move must differ between its first and last frame - a filter that
+    parses and renders is not evidence that anything moved."""
+    from src.utils.ffmpeg_helper import MOTIONS, _zoompan
+
+    for motion in MOTIONS:
+        spec = _zoompan(motion, n_frames=96, width=1920, height=1080, fps=24)
+        # `on` is the output frame index; without it nothing can vary over time.
+        assert "on/" in spec, f"{motion} has no term that varies with frame index: {spec}"

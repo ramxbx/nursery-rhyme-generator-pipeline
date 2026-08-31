@@ -1,10 +1,14 @@
 """Video animation/assembly agent (GPT-13).
 
-Default path only: FFmpeg zoompan Ken Burns pan/zoom (upscaling each scene
-image to 1920x1080 via lanczos) + xfade/acrossfade crossfades between
-scenes. AnimateDiff was dropped from scope entirely (GPT-13/GPT-18) - not
-attempted here, not even behind a flag - the 4GB GTX 1050 can't safely hold
-multi-frame video-diffusion latents.
+FFmpeg zoompan Ken Burns pan/zoom (upscaling each scene image to 1920x1080
+via lanczos) + xfade/acrossfade crossfades between scenes.
+
+AnimateDiff was previously recorded here as out of scope on the grounds that
+a 4GB GTX 1050 cannot hold multi-frame video-diffusion latents. That turned
+out to be wrong: it fits comfortably at 384x384 (peak 4.29GB with everything
+resident) and a nine-configuration sweep settled on 10 steps / 16 frames,
+~40 min per scene. motion_agent.py generates those clips; when a scene has
+one, build_motion_scene_clip uses it in place of the Ken Burns pan.
 """
 from __future__ import annotations
 
@@ -20,7 +24,7 @@ import soundfile as sf
 from src.config import PipelineConfig, load_config
 from src.utils.ffmpeg_helper import (
     build_scene_clip, burn_subtitles, compute_scene_timeline, crossfade_concat,
-    mix_background_music, motion_for_scene, probe,
+    build_motion_scene_clip, mix_background_music, motion_for_scene, probe,
 )
 from src.utils.file_manager import ensure_dirs, read_json
 from src.utils.logger import get_logger, log_with_fields
@@ -59,12 +63,17 @@ def _validate_output(out_path: Path, expected_width: int, expected_height: int, 
 
 
 def assemble_video(images_manifest: list[dict], audio_manifest: list[dict],
-                    config: PipelineConfig, out_path: Path) -> Path:
+                    config: PipelineConfig, out_path: Path,
+                    motion_manifest: list[dict] | None = None) -> Path:
     dirs = ensure_dirs(config.paths)
     fps = config.video["fps"]
     width, height = config.video["width"], config.video["height"]
 
     images_by_scene = {m["scene_index"]: m for m in images_manifest}
+    # A scene with a motion clip uses it instead of a Ken Burns pan over its
+    # still. Per-scene rather than all-or-nothing, so a scene whose motion
+    # generation OOMed still ships with its image (GPT-26).
+    motion_by_scene = {m["scene_index"]: m for m in (motion_manifest or [])}
     audio_by_scene = {m["scene_index"]: m for m in audio_manifest}
     scene_indices = sorted(set(images_by_scene) & set(audio_by_scene))
     if not scene_indices:
@@ -80,8 +89,15 @@ def assemble_video(images_manifest: list[dict], audio_manifest: list[dict],
             duration = audio_entry["actual_duration_s"]
 
             clip_path = tmp_dir / f"clip_{idx:03d}.mp4"
-            motion = motion_for_scene(idx)
-            build_scene_clip(image_path, audio_path, duration, fps, width, height, clip_path, motion)
+            motion_entry = motion_by_scene.get(idx)
+            if motion_entry:
+                motion = "animated"
+                build_motion_scene_clip(Path(motion_entry["motion_path"]), audio_path,
+                                         duration, fps, width, height, clip_path)
+            else:
+                motion = motion_for_scene(idx)
+                build_scene_clip(image_path, audio_path, duration, fps, width, height,
+                                  clip_path, motion)
             clips.append(clip_path)
             durations.append(duration)
             lines.append(audio_entry.get("line", ""))
@@ -135,15 +151,19 @@ def main() -> None:
     parser.add_argument("script", type=Path, help="Path to the script JSON (used to name the output file)")
     parser.add_argument("--images-manifest", type=Path, default=None)
     parser.add_argument("--audio-manifest", type=Path, default=None)
+    parser.add_argument("--motion-manifest", type=Path, default=None,
+                        help="Optional AnimateDiff clips; scenes with one skip Ken Burns")
     parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args()
 
     config = load_config()
     images_manifest = read_json(args.images_manifest or (config.paths["images_dir"] / "manifest.json"))
     audio_manifest = read_json(args.audio_manifest or (config.paths["audio_dir"] / "manifest.json"))
+    motion_path = args.motion_manifest or (Path(config.paths["images_dir"]).parent / "motion" / "manifest.json")
+    motion_manifest = read_json(motion_path) if Path(motion_path).exists() else None
 
     out_path = args.out or (config.paths["output_dir"] / f"{args.script.stem}.mp4")
-    assemble_video(images_manifest, audio_manifest, config, out_path)
+    assemble_video(images_manifest, audio_manifest, config, out_path, motion_manifest)
     print(f"Wrote {out_path}")
 
 

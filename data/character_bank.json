@@ -20,6 +20,21 @@
     "subject": "cat",
     "wearing": "a small brass bell"
   },
+  "cow": {
+    "features": [],
+    "seed": 1293296337,
+    "subject": "happy cow"
+  },
+  "ducklings": {
+    "features": [],
+    "seed": 2267711790,
+    "subject": "mother duck and ducklings"
+  },
+  "egg": {
+    "features": [],
+    "seed": 2820909723,
+    "subject": "vibrant egg"
+  },
   "girl": {
     "build": "young",
     "colour": "",
@@ -29,6 +44,11 @@
     "seed": 233470915,
     "subject": "girl",
     "wearing": "a yellow pinafore"
+  },
+  "lamb": {
+    "features": [],
+    "seed": 799836603,
+    "subject": "white lamb"
   },
   "pig": {
     "build": "small round",

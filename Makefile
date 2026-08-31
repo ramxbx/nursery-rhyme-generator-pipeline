@@ -29,10 +29,23 @@ run: $(VENV_PYTHON)
 test: $(VENV_PYTHON)
 	$(VENV_PYTHON) -m pytest tests/ -v
 
-# Removes generated pipeline artifacts (scripts/images/audio/output/logs) and
-# Python caches. Does NOT touch input files, model weights, or the venv.
+# Removes every generated pipeline artifact and Python cache, leaving a tree
+# that is ready for a clean end-to-end run. Does NOT touch input rhymes, the
+# character bank, model weights, or the venv.
+#
+# data/characters holds the IP-Adapter reference portraits. They ARE regenerated
+# on demand, but deleting them changes what every character looks like from then
+# on - so this target leaves them alone. Use `clean-characters` to reset
+# appearances deliberately.
+#
+# `git clean -X` is deliberately not used here: it would also remove the venv
+# and model weights, which are gitignored but expensive to rebuild.
 clean:
-	rm -rf data/scripts/*.json data/images/*.png data/images/manifest.json \
-	       data/audio/*.wav data/audio/manifest.json data/output/*.mp4 \
+	rm -rf data/scripts data/images data/audio data/motion data/output data/images_noip data/generated \
 	       logs/*.log .pytest_cache
 	find . -type d -name __pycache__ -not -path "./.venv/*" -exec rm -rf {} + 2>/dev/null || true
+
+# Forget every character's established appearance. The next run re-registers
+# them from the poem and generates new reference portraits.
+clean-characters:
+	rm -rf data/characters

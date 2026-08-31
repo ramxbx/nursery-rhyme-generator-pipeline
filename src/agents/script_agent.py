@@ -60,7 +60,7 @@ REWRITE_MAX_RETRIES = 2
 # Small models follow format instructions far more reliably than factual-consistency
 # ones - a pattern seen repeatedly in this project. gemma-4-e2b-bench (4.6B) holds
 # both, so it stays.
-ELABORATE_MODEL = "gemma-4-e2b-bench"
+ELABORATE_MODEL = "google/gemma-4-e2b"
 # Token/timeout budgets scale with poem length. The descriptor lists themselves are
 # short (20-35 words/scene, ~40 tokens), but gemma-4-e2b-bench is a reasoning model:
 # it burns a large, variable hidden "reasoning_content" pass BEFORE the API's

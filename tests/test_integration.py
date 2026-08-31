@@ -5,6 +5,8 @@ mocks. Slow (minutes on a cold run; seconds if a prior run's outputs are
 still cached, since orchestration resumes by default)."""
 from pathlib import Path
 
+import pytest
+
 from src.config import load_config
 from src.orchestration import run_pipeline
 from src.utils.ffmpeg_helper import probe
@@ -14,6 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SAMPLE_RHYME = REPO_ROOT / "data" / "rhyme.txt"
 
 
+@pytest.mark.slow
 @requires_lm_studio
 def test_full_pipeline_produces_a_playable_video():
     assert SAMPLE_RHYME.exists(), "sample rhyme fixture is missing"

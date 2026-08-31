@@ -50,6 +50,30 @@ def probe(path: Path) -> dict:
     return json.loads(out)
 
 
+# A finished video is encoded three times, not once: each scene clip, then the
+# crossfade concat, then the subtitle burn-in. (The music mix copies the video
+# stream, so it costs nothing.) Every one of those was previously running on
+# libx264's default CRF 23, so the two intermediates were discarding detail
+# before the final encode ever saw it - generation loss on top of an already
+# soft 384px source.
+#
+# The intermediates are now near-lossless: CRF 12 is visually transparent and
+# costs only temp-directory space, which is freed when the run ends. Only the
+# last encode is asked to compress for real.
+INTERMEDIATE_CRF = 12
+FINAL_CRF = 18
+# `slow` against x264's default `medium`. The encode is seconds against ~36
+# minutes per scene of diffusion, so preset time is free here in a way it
+# would not be in any normal video pipeline.
+X264_PRESET = "slow"
+
+
+def _x264(crf: int = INTERMEDIATE_CRF) -> list[str]:
+    """Video encode flags, so quality settings live in one place."""
+    return ["-c:v", "libx264", "-crf", str(crf), "-preset", X264_PRESET,
+            "-pix_fmt", "yuv420p"]
+
+
 # Camera moves cycled across scenes. A single slow centre push repeated on every
 # scene reads as a stuck camera by the third one, and at zoom+0.0008 capped at
 # 1.15 it was barely visible anyway - a 3s clip only reached 1.06x. Three moves
@@ -72,20 +96,71 @@ def motion_for_scene(scene_index: int) -> str:
 
 
 def _zoompan(motion: str, n_frames: int, width: int, height: int, fps: int) -> str:
+    """A zoompan filter for one camera move.
+
+    Every expression is a pure function of `on`, the output frame index, and
+    never of zoompan's own `zoom` accumulator.
+
+    That accumulator does not work on this input. `zoom` carries over only
+    between the `d` output frames generated from a single input frame, and these
+    clips are built from `-loop 1 -i image` with `d=1`, so every output frame
+    comes from a fresh input frame and `zoom` resets to its initial value each
+    time. `z='min(zoom+step,MAX)'` therefore evaluates to the same constant
+    forever: measured on a finished video, push_in and pull_out scenes had a
+    first-to-last-frame difference of ~1 (i.e. static) against ~45 for
+    pan_right, which was only ever correct because it drives `x` from `on` and
+    holds zoom fixed."""
     centre_x, centre_y = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
+    # Progress through the clip, 0.0 -> 1.0.
+    t = f"on/{max(n_frames - 1, 1)}"
     if motion == "pull_out":
         # Starts wide and settles in: zoom decreases toward 1.0 rather than away
         # from it, so the frame opens up over the line.
-        step = (ZOOM_MAX - 1.0) / max(n_frames, 1)
-        z = f"'if(lte(on,1),{ZOOM_MAX},max(1.0,zoom-{step:.6f}))'"
+        z = f"'{ZOOM_MAX}-{ZOOM_MAX - 1.0:.6f}*{t}'"
         return f"zoompan=z={z}:x='{centre_x}':y='{centre_y}':d=1:s={width}x{height}:fps={fps}"
     if motion == "pan_right":
         # Fixed zoom, horizontal drift across the cropped-in frame.
-        x = f"'(iw-iw/zoom)*on/{max(n_frames - 1, 1)}'"
+        x = f"'(iw-iw/zoom)*{t}'"
         return f"zoompan=z={PAN_ZOOM}:x={x}:y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps={fps}"
-    step = (ZOOM_MAX - 1.0) / max(n_frames, 1)
-    z = f"'min(zoom+{step:.6f},{ZOOM_MAX})'"
+    z = f"'1+{ZOOM_MAX - 1.0:.6f}*{t}'"
     return f"zoompan=z={z}:x='{centre_x}':y='{centre_y}':d=1:s={width}x{height}:fps={fps}"
+
+
+def build_motion_scene_clip(motion_path: Path, audio_path: Path, duration_s: float,
+                             fps: int, width: int, height: int, out_path: Path) -> Path:
+    """Build a scene from an AnimateDiff clip instead of a still.
+
+    The generated clip is 2 seconds and scenes run 3-5, so it is looped to fill.
+    Looping rather than slowing it down: at 8fps the source has no frames to
+    spare, and stretching turns a walk into a crawl. The loop point is visible
+    on close inspection but reads as a cycle, which suits a child's rhyme.
+
+    minterpolate raises the source to the video frame rate. It estimates motion
+    vectors rather than cross-fading, so it invents genuine in-between positions
+    - blending would ghost. It is also what makes 16 diffused frames enough:
+    without it the motion is visibly choppy at 8fps.
+
+    Upscaling happens after interpolation, so the interpolator works on the
+    clean 384x384 source rather than on upscaling artefacts."""
+    n_loops = max(1, int(duration_s / 2.0) + 1)
+    chain = (
+        f"minterpolate=fps={fps}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,"
+        f"scale={width}:{height}:force_original_aspect_ratio=increase:flags=lanczos,"
+        f"crop={width}:{height}"
+    )
+    args = [
+        ffmpeg_path(), "-y",
+        "-stream_loop", str(n_loops), "-i", str(motion_path),
+        "-i", str(audio_path),
+        "-filter_complex", f"[0:v]{chain}[v]",
+        "-map", "[v]", "-map", "1:a",
+        "-t", f"{duration_s:.3f}",
+        *_x264(), "-r", str(fps),
+        "-c:a", "aac", "-shortest",
+        str(out_path),
+    ]
+    run(args)
+    return out_path
 
 
 def build_scene_clip(image_path: Path, audio_path: Path, duration_s: float,
@@ -115,7 +190,7 @@ def build_scene_clip(image_path: Path, audio_path: Path, duration_s: float,
         "-filter_complex", f"[0:v]{zoompan}[v]",
         "-map", "[v]", "-map", "1:a",
         "-t", f"{duration_s:.3f}",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps),
+        *_x264(), "-r", str(fps),
         "-c:a", "aac", "-shortest",
         str(out_path),
     ]
@@ -237,7 +312,7 @@ def crossfade_concat(clips: list[Path], durations: list[float], fps: int,
         ffmpeg_path(), "-y", *inputs,
         "-filter_complex", filter_complex,
         "-map", f"[{prev_v}]", "-map", f"[{prev_a}]",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps),
+        *_x264(), "-r", str(fps),
         "-c:a", "aac",
         str(out_path),
     ]
@@ -300,7 +375,7 @@ def burn_subtitles(video_path: Path, ass_path: Path, out_path: Path) -> Path:
         ffmpeg_path(), "-y",
         "-i", str(video_path),
         "-vf", f"ass='{escaped_path}'",
-        "-c:v", "libx264", "-pix_fmt", "yuv420p",
+        *_x264(FINAL_CRF),
         "-c:a", "copy",
         str(out_path),
     ]
