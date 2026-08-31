@@ -3,9 +3,9 @@
 Working notes for picking this up cold. Linear holds the per-issue detail and
 commit messages hold the reasoning; this file is the map.
 
-**Last updated:** 2026-08-15 · master at `a3d3626` (PR #6 merged) · 134 tests passing
-(plus 1 slow end-to-end test, deselected by default — it runs the real pipeline
-and takes ~15 min).
+**Last updated:** 2026-08-31 · branch `project-status-and-spikes`, 12 commits
+ahead of master · 162 tests passing in ~30s, plus 1 slow end-to-end test that is
+deselected by default (`pytest -m slow`).
 
 ## What the pipeline does
 
@@ -14,14 +14,15 @@ nothing. Stages, each an isolated subprocess so the GPU is released between them
 
 | stage | what | roughly |
 |---|---|---|
-| rhyme | writes an original poem from a seed rhyme's subject/setting/mood | ~2 min |
-| script | scenes, metre rewrite, SD-ready descriptions | ~5 min |
-| visual | SD1.5 + hires fix, IP-Adapter character conditioning | ~5 min/scene |
-| audio | Bark singing, per-line, with fallback to Piper | ~1.5 min/line + retries |
-| animate | ffmpeg: Ken Burns, crossfades, MusicGen bed, karaoke subtitles | ~5 min |
+| rhyme | writes an original poem from a seed rhyme's subject/setting/mood | seconds |
+| script | scenes, metre rewrite, SD-ready descriptions | ~1 min/scene |
+| visual | SD1.5 + hires fix, IP-Adapter character conditioning | ~2 min/scene |
+| motion | AnimateDiff clips — **OFF by default**, `--motion` to enable | ~39 min/scene |
+| audio | Bark singing, per-line, with fallback to Piper | ~3 min/line |
+| animate | ffmpeg: Ken Burns or motion clips, crossfades, MusicGen bed, subtitles | ~10 min |
 
-A 6-line poem is ~45 min end to end. A 16-line poem is ~2 h. Use
-`--lines 6` when iterating — every extra line costs a Bark take and an image.
+Measured on 8 scenes: **~1 h without motion, 6 h 13 min with it.** Use
+`--lines 4` when iterating — every extra line costs a Bark take and an image.
 
 ## Proven, with numbers
 
@@ -54,6 +55,18 @@ A 6-line poem is ~45 min end to end. A 16-line poem is ~2 h. Use
   moving plate however much drift is added. Judged by eye and removed; the code
   is recoverable from commit 4615b4d (`src/utils/compositing.py`,
   `build_composite_scene_clip`).
+- **The end-to-end test must not run automatically.** It calls the real
+  `run_pipeline`, loading SD1.5 onto the GPU and writing the shared
+  data/images and data/audio manifests - so `pytest` competed with an actual
+  run for a 4GB card and for the same files, and both failed. It was gated only
+  on the LLM endpoint being reachable, so it was invisible whenever that was
+  down and fired the moment it came up, which also made the suite look like it
+  hung (30s vs 13min). Now marked `slow` and deselected by default.
+- **Scene count does not identify a run.** Resume compared only the number of
+  entries in a cached manifest, so two poems of the same length matched and the
+  second run reused the first's images - new words sung over old pictures, with
+  nothing in the log to say so. Stages now stamp their output with a hash of the
+  input they consumed. Only differing-length runs were ever safe.
 - **Wide aspect ratios break SD1.5 composition**, at any pixel count. 512x288
   costs exactly what 384x384 costs (148 vs 147 s/frame, same pixels) and wastes
   nothing to the 16:9 crop, but the model draws a herd of duplicated subjects

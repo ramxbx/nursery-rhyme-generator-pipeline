@@ -6,8 +6,8 @@
     {
       "line": "Once upon a time there is a happy cow,",
       "speaker": "Narrator",
-      "stage_direction": "sets scene with animal focus",
-      "scene_description": "happy cow, brown and white patches, standing happily in a grassy field, bright sunlight, peaceful morning atmosphere",
+      "stage_direction": "Setting introduces a new scene with a happy setting",
+      "scene_description": "A peaceful meadow with bright blue sky and green grass",
       "mood": "happy and cheerful",
       "duration_s": 4.55
     },
@@ -15,25 +15,25 @@
       "line": "the cow jumped from top of a hill,",
       "speaker": "Narrator",
       "stage_direction": "Descending hillside",
-      "scene_description": "happy cow, brown and white patches, mid-jump from top of a green hill, dynamic pose, leaping motion, background landscape",
+      "scene_description": "Lively and energetic",
       "mood": "playful and upbeat",
       "duration_s": 3.85
     },
     {
       "line": "the hill had flowers and smell of pine,",
       "speaker": "Narrator",
-      "stage_direction": "Describes setting",
-      "scene_description": "happy cow, brown and white patches, standing on a hill filled with colorful flowers and pine trees, scenic view, lush greenery",
-      "mood": "calm and serene",
+      "stage_direction": "A gentle, child-friendly scene.",
+      "scene_description": "soft colorful picture-book setting, gentle pastel colors, simple shapes",
+      "mood": "gentle and playful",
       "duration_s": 3.85
     },
     {
-      "line": "The cow munched on green, produced pure milk.",
+      "line": "the cow ate grass and give full milk.",
       "speaker": "Narrator",
-      "stage_direction": "Cow performing an action",
-      "scene_description": "happy cow, brown and white patches, sitting on the green grass, peacefully munching on green leaves, surrounded by fresh milk, sunny meadow",
-      "mood": "calm and peaceful",
-      "duration_s": 4.55
+      "stage_direction": "A gentle, child-friendly scene.",
+      "scene_description": "soft colorful picture-book setting, gentle pastel colors, simple shapes",
+      "mood": "gentle and playful",
+      "duration_s": 3.3
     }
   ]
 }

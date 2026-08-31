@@ -60,6 +60,11 @@
     "subject": "pig",
     "wearing": "a blue neckerchief"
   },
+  "setting": {
+    "features": [],
+    "seed": 1083092966,
+    "subject": "soft colorful picture-book setting"
+  },
   "sheep": {
     "build": "plump",
     "colour": "cream",

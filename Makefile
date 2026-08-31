@@ -37,9 +37,15 @@ test: $(VENV_PYTHON)
 # on demand, but deleting them changes what every character looks like from then
 # on - so this target leaves them alone. Use `clean-characters` to reset
 # appearances deliberately.
+#
+# `git clean -X` is deliberately not used here: it would also remove the venv
+# and model weights, which are gitignored but expensive to rebuild.
 clean:
-	rm -rf data/scripts/*.json data/images data/audio data/motion data/output \
-	       data/images_noip logs/*.log .pytest_cache
+	@# Generated scripts only. data/scripts/rhyme.json is a tracked sample that
+	@# ships with the repo, so a blanket *.json deleted a checked-in file.
+	find data/scripts -name '*.json' ! -name 'rhyme.json' -delete 2>/dev/null || true
+	rm -rf data/images data/audio data/motion data/output data/images_noip data/generated \
+	       logs/*.log .pytest_cache
 	find . -type d -name __pycache__ -not -path "./.venv/*" -exec rm -rf {} + 2>/dev/null || true
 
 # Forget every character's established appearance. The next run re-registers

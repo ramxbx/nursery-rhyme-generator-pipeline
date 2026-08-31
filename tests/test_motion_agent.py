@@ -137,6 +137,10 @@ def _stub_orchestration(monkeypatch, tmp_path, motion_enabled):
     monkeypatch.setattr(orch, "validate_manifest", lambda *a, **k: None)
     monkeypatch.setattr(orch, "manifest_is_current", lambda *a, **k: False)
     monkeypatch.setattr(orch.Path, "exists", lambda self: True)
+    # Content-fingerprinting is covered in test_run_isolation.py; these tests
+    # are about which stages run, so it is stubbed rather than fed real files.
+    monkeypatch.setattr(orch, "script_fingerprint", lambda p: "deadbeef")
+    monkeypatch.setattr(orch, "stamp_manifest", lambda *a, **k: None)
     return orch, calls
 
 

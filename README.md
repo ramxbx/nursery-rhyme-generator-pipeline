@@ -96,34 +96,83 @@ the Vulkan build and needs reselecting.
 
 ## Running it
 
+### Quick start
+
+Write a new poem and make a video of it, start to finish:
+
 ```bash
-make run                          # runs data/rhyme.txt (the bundled sample)
-make run INPUT=data/my_rhyme.txt  # runs a different rhyme
+.venv/Scripts/python.exe -m src.orchestration --generate --lines 8
 ```
 
-Or directly:
+That takes about an hour and needs nothing but the LLM endpoint running. The
+finished video lands in `data/output/`.
+
+Use your own poem instead:
 
 ```bash
 .venv/Scripts/python.exe -m src.orchestration data/my_rhyme.txt
 ```
 
-The pipeline resumes automatically - if a run is interrupted or you rerun the
-same input, stages whose output already exists are skipped. Force a full
-regeneration with `--force`:
+Or via make, which is equivalent:
 
 ```bash
-.venv/Scripts/python.exe -m src.orchestration data/my_rhyme.txt --force
+make run                          # runs data/rhyme.txt (the bundled sample)
+make run INPUT=data/my_rhyme.txt  # runs a different rhyme
 ```
 
-To have the pipeline write its own poem instead of supplying one, pass
-`--generate`. `--lines` caps the length, which matters a great deal with
-`--motion` - every line costs a Bark take, an image, and ~39 minutes of
-animation:
+### All options
+
+| Flag | What it does |
+|---|---|
+| `<input>` | Path to a rhyme text file, one line per line. Omit when using `--generate`. |
+| `--generate` | Write a new poem first instead of reading one from a file. |
+| `--lines N` | With `--generate`, how many lines to write (default 16). Use an even number - poems are couplets, and an odd count leaves a line with no rhyme partner. |
+| `--seed "Title"` | With `--generate`, take inspiration from a particular seed rhyme (see `data/seed_rhymes.json`). |
+| `--name NAME` | Base name for output files. Defaults to the input file's stem. |
+| `--force` | Re-run every stage even if its output already exists. |
+| `--motion` | Animate each scene with AnimateDiff. **Hours, not minutes** - see below. |
+| `--no-motion` | Ken Burns pan/zoom over the stills. This is the default. |
+
+### Common recipes
 
 ```bash
-.venv/Scripts/python.exe -m src.orchestration --generate --lines 4
-.venv/Scripts/python.exe -m src.orchestration --generate --seed "Five Little Ducks"
+# Fast: new 8-line poem, stills with pan/zoom               (~1 hour)
+python -m src.orchestration --generate --lines 8
+
+# Fastest useful test: 4 lines                              (~25 min)
+python -m src.orchestration --generate --lines 4
+
+# Your own poem, forcing a clean regeneration
+python -m src.orchestration data/my_rhyme.txt --force
+
+# Riff on a specific traditional rhyme
+python -m src.orchestration --generate --seed "Five Little Ducks"
+
+# Animated, on a GPU that can take it                       (~6 hours for 8 lines)
+python -m src.orchestration --generate --lines 8 --motion
 ```
+
+### Resuming
+
+The pipeline resumes automatically: if a run is interrupted, or you re-run the
+same input, any stage whose output already exists is skipped. That is what makes
+a failed six-hour render recoverable rather than a total loss.
+
+Resume is safe across different runs: each stage stamps its output with a hash
+of the input it consumed, so a cached manifest is only reused when it provably
+belongs to the poem being rendered. A different poem - even one of exactly the
+same length - regenerates rather than inheriting the previous run's images. Pass
+`--force` to re-run everything regardless, or `make clean` to wipe generated
+artifacts entirely.
+
+### Before you start a long run
+
+1. **Check the LLM endpoint is actually up** - `curl -s http://127.0.0.1:1234/v1/models`.
+   A dead endpoint doesn't fail the run; it silently degrades to a fallback poem
+   with no metre rewrite.
+2. **Do a `--no-motion` pass first** if you have changed anything. It exercises
+   every stage in ~25 minutes instead of hours. This is how the character
+   auto-registration bug was caught before it wasted a 10-hour render.
 
 ## Adding a new rhyme
 
@@ -138,19 +187,19 @@ Yes sir, yes sir,
 Three bags full.
 ```
 
-Then `make run INPUT=data/my_rhyme.txt`. That's the whole workflow - the
-script agent handles turning it into a full scene-by-scene script (with
-creative rewrites and image-prompt-ready descriptions) automatically as the
-first pipeline stage. No separate "generate a script" step needed.
+Then `make run INPUT=data/my_rhyme.txt`. Turning it into a scene-by-scene
+script happens automatically as the first pipeline stage - there is no separate
+"generate a script" step.
 
-Each run's outputs are named after the input file's stem (`my_rhyme.txt` ->
-`my_rhyme.json` / `my_rhyme.mp4`, etc.), except the two shared manifest files
-noted below.
+Outputs are named after the input file's stem (`my_rhyme.txt` ->
+`my_rhyme.json` / `my_rhyme.mp4`), except the shared per-stage manifests noted
+below.
 
 ## Where output files are saved
 
 | Stage | Output |
 |---|---|
+| Generated poem | `data/generated/<name>.txt` (only with `--generate`) |
 | Script | `data/scripts/<name>.json` - scenes with line, speaker, stage_direction, scene_description, mood, duration |
 | Images | `data/images/scene_NNN.png` + `data/images/manifest.json` |
 | Motion | `data/motion/scene_NNN.mp4` + `data/motion/manifest.json` |
@@ -159,11 +208,22 @@ noted below.
 | Logs | `logs/pipeline.log` (structured JSON, one line per event) |
 | Characters | `data/characters/` - reference portraits, persisted across runs |
 
-**Note**: the per-scene image/audio files and their manifests are *not*
-namespaced by rhyme name - running a second, different rhyme without
-`--force` will reuse/overwrite the first run's scene images and audio if the
-manifests already exist for that stage. Run `make clean` between different
-rhymes, or use `--force`, to avoid stale cross-run reuse.
+**Per-scene files are not namespaced by rhyme name** - every run writes to
+`data/images/`, `data/audio/` and `data/motion/`, so a new run overwrites the
+previous run's scene files. Copy anything worth keeping before re-running.
+
+**Old files are not silently reused, though.** Each stage stamps its manifest
+with a hash of the input it consumed - the script stage with the poem's hash,
+the later stages with the script's - and a stamp that does not match marks the
+output stale, so it is regenerated. That covers:
+
+- a different poem of the same length (scene count matched, so this used to
+  sing the new words over the old pictures)
+- the same poem edited in place
+- a different poem run under the same `--name`
+- manifests left by any older version of the pipeline, which carry no stamp
+
+`--force` regenerates regardless, and `make clean` wipes everything generated.
 
 ## Configuration
 
@@ -209,7 +269,8 @@ has already been ruled out, and what to try first when revisiting.
 ## Other Makefile commands
 
 ```bash
-make test              # run the test suite (pytest)
+make test              # run the test suite (fast, ~30s)
+pytest -m slow         # the real end-to-end pipeline test (GPU; run it alone)
 make clean             # remove all generated artifacts (keeps inputs, characters, models, venv)
 make clean-characters  # forget every character's established appearance
 ```
