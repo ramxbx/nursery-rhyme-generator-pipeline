@@ -21,10 +21,11 @@ data/images_noip/
 # of MB each and git has no LFS here.
 data/samples/
 
-# Generated scripts and poems from runs. Only the bundled samples are tracked.
-data/scripts/*.json
-!data/scripts/rhyme.json
-
 # Poems written by --generate. data/ itself holds curated inputs that are
 # checked in, so generated ones get their own directory.
 data/generated/
+
+# Scene scripts and their stamps are DERIVED from the poem in data/, which is
+# what is actually tracked. Committing the derived script meant every run that
+# touched the sample rhyme churned a checked-in file.
+data/scripts/

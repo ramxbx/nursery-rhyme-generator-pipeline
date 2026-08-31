@@ -200,7 +200,7 @@ below.
 | Stage | Output |
 |---|---|
 | Generated poem | `data/generated/<name>.txt` (only with `--generate`) |
-| Script | `data/scripts/<name>.json` - scenes with line, speaker, stage_direction, scene_description, mood, duration |
+| Script | `data/scripts/<name>.json` (generated, not tracked) - scenes with line, speaker, stage_direction, scene_description, mood, duration |
 | Images | `data/images/scene_NNN.png` + `data/images/manifest.json` |
 | Motion | `data/motion/scene_NNN.mp4` + `data/motion/manifest.json` |
 | Audio | `data/audio/scene_NNN.wav` + `data/audio/manifest.json` |
