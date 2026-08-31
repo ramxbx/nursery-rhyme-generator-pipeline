@@ -79,6 +79,7 @@ Measured on 8 scenes: **~1 h without motion, 6 h 13 min with it.** Use
 |---|---|---|
 | GPT-26 AnimateDiff | In Progress | **Integrated; one full 4-scene run done at 36 min/scene.** Clarity work in flight — see below |
 | GPT-41 score-driven singing | Backlog | ACE-Step (MIT, <4 GB) or DiffSinger. Bark still invents its own melody |
+| Character bank can register a non-character | **Open** | One registration per poem is enforced, but not that it IS a character — see below |
 | GPT-40 anatomy defects | Backlog | Needs a metric that sees defects, or inpainting |
 | GPT-14 YouTube upload | Todo | Never started |
 | GPT-22 / GPT-25 | Backlog | Older style + prompt-ordering items |
@@ -250,6 +251,36 @@ Measured on the same poem before and after:
 Caught by running a fast `motion.enabled: false` pass before committing to a
 long render. **Do that before every long run** - it exercises every stage in
 ~25 minutes instead of hours.
+
+### Still open: one registration per poem, but not necessarily a character
+
+The per-scene leak is fixed - a poem registers exactly one character, chosen as
+the modal key across its scene descriptions. What is NOT guaranteed is that the
+thing registered is a character at all.
+
+A duck poem registered `setting -> "soft colorful picture-book setting"`, because
+that phrase was what most scene descriptions happened to open with. One bad
+entry instead of three, but still wrong, and it persists into every later
+episode.
+
+The obvious guard - reject descriptors containing "setting", "scene",
+"background" - is inference, and inference is what leaked four times already.
+A better fix probably belongs in the scene-description template: require the
+first comma-segment to be the subject, and validate that it is, rather than
+having the visual agent guess afterwards.
+
+Purge junk entries by hand from `data/character_bank.json` (and the matching
+portrait in `data/characters/`) until this is fixed.
+
+### Tests used to write the production log (fixed)
+
+Every agent calls `get_logger()` at import time, attaching a FileHandler to
+`logs/pipeline.log` - so a test run wrote ~60 lines into the same file a
+production run writes to, interleaved. Diagnosing a run meant sifting out
+entries carrying pytest tmp paths, and a test's "character registered" line was
+indistinguishable from a real one. That cost real time during this session's
+verification. `tests/conftest.py` now redirects the log at import time, which
+has to be import time: by fixture time the handler is already attached.
 
 ### The seed search records the wrong seed (fixed)
 
