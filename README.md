@@ -27,9 +27,10 @@ rhyme_agent -> script_agent -> visual_agent -> motion_agent -> audio_agent -> an
    candidates from consecutive seeds and keeps whichever one CLIP judges to
    actually contain the subject. A hires pass re-renders the winner at 768.
    Framing cycles across scenes so a video isn't all close-ups.
-4. **motion_agent** *(optional, `motion.enabled`)* regenerates each scene as a
-   2-second AnimateDiff clip. It is text-to-video: it reuses the prompt and the
-   winning seed, not the still itself. **This stage is ~81% of the run.**
+4. **motion_agent** *(optional, OFF by default - `--motion`)* regenerates each
+   scene as a 2-second AnimateDiff clip. It is text-to-video: it reuses the
+   prompt and the winning seed, not the still itself. **This stage is ~83% of a
+   run's wall clock**, which is why it is off - see below.
 5. **audio_agent** sings each line with Bark, falling back to Piper per line
    when a take comes back unusable. Every downstream duration follows what Bark
    actually sang, not an estimate.
@@ -115,8 +116,8 @@ regeneration with `--force`:
 ```
 
 To have the pipeline write its own poem instead of supplying one, pass
-`--generate`. `--lines` caps the length, which matters a great deal when the
-motion stage is on - every line costs a Bark take, an image, and ~36 minutes of
+`--generate`. `--lines` caps the length, which matters a great deal with
+`--motion` - every line costs a Bark take, an image, and ~39 minutes of
 animation:
 
 ```bash
@@ -173,7 +174,8 @@ Toggles live in `config/pipeline.yaml`, `config/sd_config.yml`,
   and rewriting to a shared syllable count so lines sing to one melody
 - `script.scene_planning.target_scene_duration_s` - lower gives more, shorter
   scenes (and so more images)
-- **`motion.enabled`** - AnimateDiff clips instead of Ken Burns pans. This is
+- **`motion.enabled`** - AnimateDiff clips instead of Ken Burns pans (default
+  off; use `--motion` / `--no-motion` to override per run). This is
   the big one: **on, a run takes hours; off, minutes.** See below.
 - `music.enabled` / `music.volume` / `music.duck` - MusicGen backing track
 - `visual.character_bank` / `visual.ip_adapter` - hold a character's appearance
@@ -181,12 +183,28 @@ Toggles live in `config/pipeline.yaml`, `config/sd_config.yml`,
 - `backend` (in tts_config.yml) - `bark` sings; `piper` speaks and is warped
   into a melodic contour, and is far faster
 
-### A word on runtime
+### Animated scenes vs. Ken Burns
 
-With `motion.enabled: true`, expect roughly **12 minutes of compute per second
-of finished video** on a GTX 1050 - a 4-line poem is about 3 hours, of which
-81% is the motion stage alone. Turn motion off for iteration; turn it on for a
-final render.
+The motion stage is **off by default**, and each scene instead gets a slow
+pan/zoom across its still image. Override per run without editing config:
+
+```bash
+python -m src.orchestration data/my_rhyme.txt --no-motion   # stills + Ken Burns (minutes)
+python -m src.orchestration data/my_rhyme.txt --motion      # AnimateDiff clips (hours)
+```
+
+Measured on an 8-scene poem, GTX 1050 4GB:
+
+| | `--no-motion` | `--motion` |
+|---|---|---|
+| motion stage | - | 5 h 8 min |
+| **total run** | **~30 min** | **6 h 13 min** |
+| per second of video | ~1 min | ~13 min |
+
+`--motion` works and produces genuine animation, but on this card it renders at
+384px from 16 frames looped to fill each scene, which visibly shimmers and has a
+loop seam. It is parked as future work for a larger GPU - see STATUS.md for what
+has already been ruled out, and what to try first when revisiting.
 
 ## Other Makefile commands
 

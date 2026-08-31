@@ -116,7 +116,39 @@ smooth away the texture that gives the 10-step version its character.
 
 No reason to test 15. The config is converged.
 
-### Integration status — DONE, one full run completed
+### PARKED as future work — needs a bigger GPU
+
+The technique works and is fully integrated; it is the hardware that does not
+suit it. Turned OFF by default (`motion.enabled: false`), kept in the tree, and
+switchable per run with `--motion` / `--no-motion`.
+
+Two reasons, both measured on an 8-scene run:
+
+1. **Cost.** 38.6 min/scene, 5.14 h of a 6h13m run - 83% of wall clock, for
+   28.7 s of video. That is ~13 min of compute per second of output.
+2. **Flicker, and it is not a tuning fault.** 16 frames diffused at 384px, each
+   denoised independently, looped 2-3x per scene and motion-interpolated to
+   24fps. Independent per-frame denoising shimmers on fine detail; the loop adds
+   a periodic seam. Both are inherent to those numbers. Fixing them means more
+   frames at higher resolution, which is exactly what a 4GB card cannot do.
+
+Everything cheap has already been tried and is recorded below: the step count
+and frame count are at an optimum rather than a ceiling (12 steps and 8 frames
+both judged worse), and wide aspect ratios are disproven. What is left needs
+VRAM.
+
+**When revisiting on better hardware, in order:**
+
+- More frames before more resolution. 32-48 frames removes the loop entirely -
+  the seam is currently the most visible artefact, and it exists only because a
+  2-second clip has to cover a 3-6 second scene.
+- 512x512, SD1.5's native resolution, which should reduce the per-frame
+  instability that reads as shimmer.
+- Only then a learned upscaler (see the Real-ESRGAN notes) for detail.
+
+Do not re-run the resolution/steps sweep. Do not retry wide aspect ratios.
+
+### Integration status — the run that was completed
 
 Wired into the pipeline as stage 2b (`src/agents/motion_agent.py`), on by
 default via `motion.enabled`. A scene with a clip uses it; a scene whose

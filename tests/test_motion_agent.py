@@ -113,3 +113,70 @@ def test_each_scene_picks_its_own_source(monkeypatch, tmp_path):
 
     aa.assemble_video(images, audio, Cfg(), tmp_path / "out.mp4", motion)
     assert used == ["motion", "kenburns"]
+
+
+def _pipeline_cfg(tmp_path, motion_enabled):
+    class Cfg:
+        paths = {"scripts_dir": tmp_path, "images_dir": tmp_path / "images",
+                 "audio_dir": tmp_path / "audio", "output_dir": tmp_path,
+                 "data_dir": tmp_path, "logs_dir": tmp_path}
+        pipeline = {"motion": {"enabled": motion_enabled}}
+    return Cfg()
+
+
+def _stub_orchestration(monkeypatch, tmp_path, motion_enabled):
+    """run_pipeline with every stage stubbed; returns the recorded stage calls."""
+    from src import orchestration as orch
+
+    calls = []
+    monkeypatch.setattr(orch, "load_config", lambda: _pipeline_cfg(tmp_path, motion_enabled))
+    monkeypatch.setattr(orch, "ensure_dirs", lambda p: None)
+    monkeypatch.setattr(orch, "run_stage",
+                        lambda module, args, name, **k: calls.append((name, args)))
+    monkeypatch.setattr(orch, "validate_script", lambda p: {"scenes": [{}, {}]})
+    monkeypatch.setattr(orch, "validate_manifest", lambda *a, **k: None)
+    monkeypatch.setattr(orch, "manifest_is_current", lambda *a, **k: False)
+    monkeypatch.setattr(orch.Path, "exists", lambda self: True)
+    return orch, calls
+
+
+def test_no_motion_skips_the_stage_and_assembles_from_stills(monkeypatch, tmp_path):
+    """Ken Burns fallback is the whole point of the switch."""
+    orch, calls = _stub_orchestration(monkeypatch, tmp_path, motion_enabled=False)
+    orch.run_pipeline(tmp_path / "poem.txt", name="t", force=True)
+
+    stages = [name for name, _ in calls]
+    assert "motion" not in stages, stages
+
+
+def test_a_stale_motion_manifest_is_not_used_when_motion_is_off(monkeypatch, tmp_path):
+    """The bug this fixes: orchestration passed --motion-manifest unconditionally,
+    so after one animated run, turning motion off skipped the expensive stage but
+    still assembled from the previous run's clips - the switch looked inert."""
+    orch, calls = _stub_orchestration(monkeypatch, tmp_path, motion_enabled=False)
+    orch.run_pipeline(tmp_path / "poem.txt", name="t", force=True)
+
+    animate_args = next(args for name, args in calls if name == "animate")
+    assert "--motion-manifest" not in animate_args, animate_args
+
+
+def test_motion_manifest_is_passed_when_motion_is_on(monkeypatch, tmp_path):
+    orch, calls = _stub_orchestration(monkeypatch, tmp_path, motion_enabled=True)
+    orch.run_pipeline(tmp_path / "poem.txt", name="t", force=True)
+
+    stages = [name for name, _ in calls]
+    animate_args = next(args for name, args in calls if name == "animate")
+    assert "motion" in stages
+    assert "--motion-manifest" in animate_args
+
+
+def test_the_cli_flag_overrides_the_config_file(monkeypatch, tmp_path):
+    """--no-motion must win over motion.enabled: true, and --motion over false,
+    so a run can be redirected without editing config."""
+    orch, calls = _stub_orchestration(monkeypatch, tmp_path, motion_enabled=True)
+    orch.run_pipeline(tmp_path / "poem.txt", name="t", force=True, motion=False)
+    assert "motion" not in [name for name, _ in calls]
+
+    orch, calls = _stub_orchestration(monkeypatch, tmp_path, motion_enabled=False)
+    orch.run_pipeline(tmp_path / "poem.txt", name="t", force=True, motion=True)
+    assert "motion" in [name for name, _ in calls]

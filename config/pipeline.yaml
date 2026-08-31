@@ -71,10 +71,22 @@ visual:
   ip_adapter_scale: 0.5
 
 motion:
-  # AnimateDiff clips instead of Ken Burns pans. This is 81% of a run's wall
-  # clock - ~36 min per scene, so a 6-scene poem is ~4 hours of animation
-  # against ~10 min of images. Turn it off for a fast run; scenes fall back to
-  # a pan across the still.
+  # AnimateDiff clips instead of Ken Burns pans over the stills.
+  #
+  # OFF by default, and that is a judgement about this machine rather than about
+  # the technique. It works - an 8-scene poem rendered end to end - but on a 4GB
+  # GTX 1050 it costs ~39 min per scene (83% of a 6-hour run) and the result
+  # flickers: 16 frames diffused at 384px, each denoised independently, looped
+  # 2-3x and motion-interpolated up to 24fps. The shimmer and the loop seam are
+  # inherent to those numbers, not a tuning mistake, and both need more frames
+  # at higher resolution to fix - which needs a bigger card.
+  #
+  # Revisit on better hardware. See STATUS.md for the full config sweep and what
+  # was already ruled out.
+  #
+  # Override per run without editing this file:
+  #   python -m src.orchestration <input> --motion
+  #   python -m src.orchestration <input> --no-motion
   enabled: false
   # Generation size, from a nine-configuration sweep recorded in STATUS.md.
   # Must be multiples of 8. Do not make this 16:9 to avoid the delivery crop -

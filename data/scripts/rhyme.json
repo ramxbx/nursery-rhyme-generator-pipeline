@@ -6,8 +6,8 @@
     {
       "line": "Once upon a time there is a happy cow,",
       "speaker": "Narrator",
-      "stage_direction": "Setting introduces a new scene with a happy setting",
-      "scene_description": "happy cow, light brown fur, standing happily on a grassy hill, bright sunny morning, peaceful meadow background",
+      "stage_direction": "sets scene with animal focus",
+      "scene_description": "happy cow, brown and white patches, standing happily in a grassy field, bright sunlight, peaceful morning atmosphere",
       "mood": "happy and cheerful",
       "duration_s": 4.55
     },
@@ -15,25 +15,25 @@
       "line": "the cow jumped from top of a hill,",
       "speaker": "Narrator",
       "stage_direction": "Descending hillside",
-      "scene_description": "happy cow, light brown fur, mid-air jump from top of a green hill, dynamic pose, looking forward, motion blur effect",
-      "mood": "playful and adventurous",
+      "scene_description": "happy cow, brown and white patches, mid-jump from top of a green hill, dynamic pose, leaping motion, background landscape",
+      "mood": "playful and upbeat",
       "duration_s": 3.85
     },
     {
-      "line": "The hill sparkled with blooms and the scent of pine,",
+      "line": "the hill had flowers and smell of pine,",
       "speaker": "Narrator",
-      "stage_direction": "Setting shifts from 'hill' to 'blooms and the scent of pine', creating a serene and magical atmosphere",
-      "scene_description": "happy cow, light brown fur, standing on a hill sparkling with colorful blooms and pine trees, bright sunlight, vibrant natural setting",
-      "mood": "calm and dreamy",
-      "duration_s": 4.55
+      "stage_direction": "Describes setting",
+      "scene_description": "happy cow, brown and white patches, standing on a hill filled with colorful flowers and pine trees, scenic view, lush greenery",
+      "mood": "calm and serene",
+      "duration_s": 3.85
     },
     {
-      "line": "The cow munched on green, yielded full milk.",
+      "line": "The cow munched on green, produced pure milk.",
       "speaker": "Narrator",
-      "stage_direction": "Cow performing action",
-      "scene_description": "happy cow, light brown fur, sitting on the green grass munched on lush green leaves, full milk expression, peaceful meadow background",
+      "stage_direction": "Cow performing an action",
+      "scene_description": "happy cow, brown and white patches, sitting on the green grass, peacefully munching on green leaves, surrounded by fresh milk, sunny meadow",
       "mood": "calm and peaceful",
-      "duration_s": 4.2
+      "duration_s": 4.55
     }
   ]
 }

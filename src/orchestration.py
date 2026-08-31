@@ -95,9 +95,7 @@ def generate_input_rhyme(config, seed: str | None = None, lines: int | None = No
     Kept in-process rather than a subprocess like the other stages - it touches
     no GPU, so the isolation those need does not apply, and the caller needs the
     chosen filename back to name every downstream artefact."""
-    from src.agents.rhyme_agent import generate_rhyme
-
-    from src.agents.rhyme_agent import RHYME_LINES
+    from src.agents.rhyme_agent import RHYME_LINES, generate_rhyme
 
     name, text, generated = generate_rhyme(config, seed, line_total=lines or RHYME_LINES)
     path = Path(config.paths["data_dir"]) / f"{name}.txt"
@@ -107,7 +105,10 @@ def generate_input_rhyme(config, seed: str | None = None, lines: int | None = No
     return path
 
 
-def run_pipeline(input_path: Path, name: str | None = None, force: bool = False) -> Path:
+def run_pipeline(input_path: Path, name: str | None = None, force: bool = False,
+                  motion: bool | None = None) -> Path:
+    """Run every stage. `motion` overrides config/pipeline.yaml when given:
+    True forces AnimateDiff clips, False forces Ken Burns pans."""
     config = load_config()
     ensure_dirs(config.paths)
     name = name or input_path.stem
@@ -140,7 +141,9 @@ def run_pipeline(input_path: Path, name: str | None = None, force: bool = False)
     # released before the audio stage starts, and sequenced after the image
     # stage so the two never share the card.
     motion_manifest = Path(config.paths["images_dir"]).parent / "motion" / "manifest.json"
-    if config.pipeline.get("motion", {}).get("enabled", False):
+    use_motion = (config.pipeline.get("motion", {}).get("enabled", False)
+                  if motion is None else motion)
+    if use_motion:
         if force or not manifest_is_current(motion_manifest, n_scenes):
             run_stage("src.agents.motion_agent",
                       [str(script_path), "--images-manifest", str(images_manifest),
@@ -148,6 +151,8 @@ def run_pipeline(input_path: Path, name: str | None = None, force: bool = False)
         else:
             log_with_fields(logger, 20, "skipping motion stage, output is current",
                              path=str(motion_manifest))
+    else:
+        log_with_fields(logger, 20, "motion stage off, scenes will use Ken Burns pans")
 
     # Stage 3: audio (CPU)
     if force or not manifest_is_current(audio_manifest, n_scenes):
@@ -158,13 +163,20 @@ def run_pipeline(input_path: Path, name: str | None = None, force: bool = False)
 
     # Stage 4: animate/assembly (CPU, ffmpeg) - always re-run, cheap relative to the others
     # and its output must reflect whatever images/audio currently exist.
-    run_stage("src.agents.animate_agent", [
+    animate_args = [
         str(script_path),
         "--images-manifest", str(images_manifest),
         "--audio-manifest", str(audio_manifest),
-        "--motion-manifest", str(motion_manifest),
         "--out", str(output_path),
-    ], "animate")
+    ]
+    # Only point assembly at motion clips when motion is actually on. Passing
+    # the path unconditionally meant a previous run's clips were still picked up
+    # after motion was turned off - the expensive stage was correctly skipped,
+    # but the video was assembled from stale animation anyway, so the switch
+    # looked like it did nothing.
+    if use_motion:
+        animate_args += ["--motion-manifest", str(motion_manifest)]
+    run_stage("src.agents.animate_agent", animate_args, "animate")
     if not output_path.exists():
         raise StageError(f"expected final video at {output_path} but it wasn't created")
 
@@ -189,6 +201,12 @@ def main() -> None:
                         help="With --generate, take inspiration from this seed rhyme title")
     parser.add_argument("--name", default=None, help="Base name for output files (default: input filename stem)")
     parser.add_argument("--force", action="store_true", help="Re-run every stage even if outputs already exist")
+    # Overrides motion.enabled in config/pipeline.yaml for this run only.
+    motion_group = parser.add_mutually_exclusive_group()
+    motion_group.add_argument("--motion", dest="motion", action="store_true", default=None,
+                              help="Animate scenes with AnimateDiff (~39 min per scene)")
+    motion_group.add_argument("--no-motion", dest="motion", action="store_false",
+                              help="Ken Burns pan/zoom over the still images instead (minutes, not hours)")
     args = parser.parse_args()
 
     if not args.generate and args.input is None:
@@ -201,7 +219,7 @@ def main() -> None:
             print(f"Generated rhyme: {input_path}")
         # A generated run names its outputs after the poem, so a new rhyme never
         # silently reuses the previous run's cached scenes.
-        output = run_pipeline(input_path, args.name, args.force or args.generate)
+        output = run_pipeline(input_path, args.name, args.force or args.generate, args.motion)
     except StageError as e:
         logger.error(f"Pipeline failed: {e}")
         sys.exit(1)
