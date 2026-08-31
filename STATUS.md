@@ -62,6 +62,14 @@ Measured on 8 scenes: **~1 h without motion, 6 h 13 min with it.** Use
   on the LLM endpoint being reachable, so it was invisible whenever that was
   down and fired the moment it came up, which also made the suite look like it
   hung (30s vs 13min). Now marked `slow` and deselected by default.
+- **zoompan's `zoom` accumulator does not advance on a looped still.** It
+  carries over only between the `d` output frames from one input frame, and
+  these clips use `-loop 1 -i image` with `d=1`, so `zoom` resets every frame
+  and `z='min(zoom+step,MAX)'` is a constant. push_in and pull_out produced no
+  motion at all - 5 of 8 scenes static in a finished video - while pan_right
+  worked only because it holds zoom fixed and drives `x` from `on`. Every
+  expression must be a pure function of `on`. Measured: first-to-last frame
+  difference 1.03 -> 32.69 for push_in.
 - **Scene count does not identify a run.** Resume compared only the number of
   entries in a cached manifest, so two poems of the same length matched and the
   second run reused the first's images - new words sung over old pictures, with

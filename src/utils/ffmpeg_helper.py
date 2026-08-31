@@ -96,19 +96,33 @@ def motion_for_scene(scene_index: int) -> str:
 
 
 def _zoompan(motion: str, n_frames: int, width: int, height: int, fps: int) -> str:
+    """A zoompan filter for one camera move.
+
+    Every expression is a pure function of `on`, the output frame index, and
+    never of zoompan's own `zoom` accumulator.
+
+    That accumulator does not work on this input. `zoom` carries over only
+    between the `d` output frames generated from a single input frame, and these
+    clips are built from `-loop 1 -i image` with `d=1`, so every output frame
+    comes from a fresh input frame and `zoom` resets to its initial value each
+    time. `z='min(zoom+step,MAX)'` therefore evaluates to the same constant
+    forever: measured on a finished video, push_in and pull_out scenes had a
+    first-to-last-frame difference of ~1 (i.e. static) against ~45 for
+    pan_right, which was only ever correct because it drives `x` from `on` and
+    holds zoom fixed."""
     centre_x, centre_y = "iw/2-(iw/zoom/2)", "ih/2-(ih/zoom/2)"
+    # Progress through the clip, 0.0 -> 1.0.
+    t = f"on/{max(n_frames - 1, 1)}"
     if motion == "pull_out":
         # Starts wide and settles in: zoom decreases toward 1.0 rather than away
         # from it, so the frame opens up over the line.
-        step = (ZOOM_MAX - 1.0) / max(n_frames, 1)
-        z = f"'if(lte(on,1),{ZOOM_MAX},max(1.0,zoom-{step:.6f}))'"
+        z = f"'{ZOOM_MAX}-{ZOOM_MAX - 1.0:.6f}*{t}'"
         return f"zoompan=z={z}:x='{centre_x}':y='{centre_y}':d=1:s={width}x{height}:fps={fps}"
     if motion == "pan_right":
         # Fixed zoom, horizontal drift across the cropped-in frame.
-        x = f"'(iw-iw/zoom)*on/{max(n_frames - 1, 1)}'"
+        x = f"'(iw-iw/zoom)*{t}'"
         return f"zoompan=z={PAN_ZOOM}:x={x}:y='ih/2-(ih/zoom/2)':d=1:s={width}x{height}:fps={fps}"
-    step = (ZOOM_MAX - 1.0) / max(n_frames, 1)
-    z = f"'min(zoom+{step:.6f},{ZOOM_MAX})'"
+    z = f"'1+{ZOOM_MAX - 1.0:.6f}*{t}'"
     return f"zoompan=z={z}:x='{centre_x}':y='{centre_y}':d=1:s={width}x{height}:fps={fps}"
 
 
